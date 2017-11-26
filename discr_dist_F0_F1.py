@@ -269,6 +269,34 @@ def eqPi_jac(F1in, pi_in,hwz0,r1z_endo,zg_endo,zused,Gtilde) :
 
     return(F1_resid_jac)
 
+def eqPiwbar(wbarF1in, Lwbar,hwz0,r1z_endo,zg_endo,zused,Gtilde) :
+    # equalizes profit by manipulating F
+    global wgrid
+    global wpts
+    global wL,wpow
+    global p
+
+    wbarhr = wbarF1in[0]
+    piwbar = (p-wbarhr)*Lwbar
+    F1in = wbarF1in[1:]
+    wgridhr = np.linspace(0, 1, wpts) ** wpow * (wbarhr - wL) + wL
+
+    F1_resid = np.zeros(wpts)
+    for wi in range(wpts - 2, 0, -1):
+        F1_resid[wi] = piwbar / (p - wgridhr[wi]) \
+                       - np.trapz(hwz0[wi, 0:zused[wi]] / (
+        delta + gamma1 * (1 - F1in[wi]) + (1 - gamma1) * r1z_endo[wi, 0:zused[wi]] * (1 - Gtilde[wi])),
+                                  zg_endo[wi, 0:zused[wi]], axis=0)
+        
+    Lwimplied = np.trapz(hwz0[wi, 0:zused[wi]] / (
+        delta + gamma1 * (1 - F1in[wi]) + (1 - gamma1) * r1z_endo[wi, 0:zused[wi]] * (1 - Gtilde[wi])),
+                                  zg_endo[wi, 0:zused[wi]], axis=0)
+    Epi = np.mean( (p -wgridhr)*Lwimplied )
+    F1_resid[-1] = Epi - piwbar
+    
+    return (F1_resid)
+
+
 ##### Solving networks and search
 
 nu0eqnu1 = 0
@@ -438,292 +466,255 @@ for homotop_i in range(0,nstep):
         nonmonolwz = 0
         min_wi_Fpos = np.zeros(len(wgrid))
 
-        for wbar_i in range(0,maxwbariter):
+#        for wbar_i in range(0,maxwbariter):
 
-            # Iterate on n, but it doesn't really matter what is the original guess
-            for niter in range(0,maxniter):
+        # Iterate on n, but it doesn't really matter what is the original guess
+        for niter in range(0,maxniter):
 
-                # Iterate on Rz until I get the lower bound on wages, actually not the lower bound given heterogeneity
-                wL_i = 1
-                wL1 = 0
+            # Iterate on Rz until I get the lower bound on wages, actually not the lower bound given heterogeneity
+            wL_i = 1
+            wL1 = 0
 
-                for wL_i in range(0,maxwLiter):
+            for wL_i in range(0,maxwLiter):
 
-                    if wL_i > 1:
-                        # Will have heterogeneous R
-                        if nu0-nu1 > 1e-2 or (gamma0-gamma1 > 1e-2) :
-                            wL1 = lowestw(R1)
-                        else:
-                            wL1 = np.max(R1)
+                if wL_i > 1:
+                    # Will have heterogeneous R
+                    if nu0-nu1 > 1e-2 or (gamma0-gamma1 > 1e-2) :
+                        wL1 = lowestw(R1)
+                    else:
+                        wL1 = np.max(R1)
 
-                        wL = update_wL*wL1 + (1-update_wL)*wL
+                    wL = update_wL*wL1 + (1-update_wL)*wL
 
-                        # Reconstruct wgrid
-                        wstep_old = wstep.copy()
-                        # Put the points in the middle of the space
-                        wgrid = np.linspace(0,1,wpts)**wpow * (wbar-wL) + wL
-                        wstep = np.zeros(len(wgrid))
-                        wmid = 0.5*(wgrid[0:-1] + wgrid[1:])
-                        wstep[1:-1] = wmid[1:] - wmid[0:-1] #wstep[1:end-1] is the Matlab-equivalent indexing
-                        wstep[0] = wmid[0]-wgrid[0]
-                        wstep[-1] = wgrid[-1]-wmid[-1]
-                        # Rescale F0
-                        F0 = F0*wstep_old/wstep
-                        F0 = F0/F0[wpts-1]
+                    # Reconstruct wgrid
+                    wstep_old = wstep.copy()
+                    # Put the points in the middle of the space
+                    wgrid = np.linspace(0,1,wpts)**wpow * (wbar-wL) + wL
+                    wstep = np.zeros(len(wgrid))
+                    wmid = 0.5*(wgrid[0:-1] + wgrid[1:])
+                    wstep[1:-1] = wmid[1:] - wmid[0:-1] #wstep[1:end-1] is the Matlab-equivalent indexing
+                    wstep[0] = wmid[0]-wgrid[0]
+                    wstep[-1] = wgrid[-1]-wmid[-1]
+                    # Rescale F0
+                    F0 = F0*wstep_old/wstep
+                    F0 = F0/F0[wpts-1]
 
+                mask = np.outer(np.ones(wpts), R0) <= np.outer(wgrid, np.ones(zpts))
+                mask = mask.flatten('F')
+
+                reset_flag = 0
+                Rdist = np.zeros((maxRziter,2))
+
+                for Rziter in range(0,maxRziter):
+
+                    # Solve for the distribution of offers
+
+                    for Gwziter in range(0,2000):
+
+                        # print(homotop_i,Fi,wbar_i,niter,wL_i,Rziter,Gwziter)
+                        Gtilde = np.trapz(np.outer(Psis,np.ones(wpts)) * Gwz0.T, zgrid, axis=0)
+                        # Compute theta by taking derivatives of Gtilde
+                        thw[1:wpts-1] = (Gtilde[2:wpts] - Gtilde[0:wpts-2])/(wgrid[2:wpts] - wgrid[0:wpts-2])
+                        thw[0] = (Gtilde[1] - Gtilde[0])/(wgrid[1] - wgrid[0])
+                        thw[wpts-1] = (Gtilde[wpts-1] - Gtilde[wpts-2])/(wgrid[wpts-1] - wgrid[wpts-2])
+                        [resid,Gwz_1,C,D] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
+                        Gwz_1 = Gwz_1.flatten('F')
+                        Gwz_1[mask == 0] = 0
+                        Gwz_1 = Gwz_1.reshape((wpts,zpts), order='F')
+                        # Impose adding up to Gwz_1
+                        Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
+                        norm_resid = np.max(abs(Gwz_1 - Gwz0))
+                        abs_resid = np.max(abs(resid))
+                        Gwz0 = update_Gwz*Gwz_1 + (1-update_Gwz)*Gwz0
+                        abs_tol = np.max([RzTol,(minRziter - Rziter - 1)/minRziter*1e-3 + (Rziter+1)/minRziter*RzTol])
+                        norm_tol = abs_tol
+                        if abs_resid < abs_tol or norm_resid < norm_tol:
+                            break
+                    if Gwziter >= 1999:
+                        print("No Gwz converge",homotop_i, Fi, wbar_i,niter,wL_i,Rziter,Gwziter)
+                    [resid,Gwz_1,R1,VpRz] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
+                    Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
+                    Rdist[Rziter,0] = np.max((R0-R1)**2/R0)
+                    Rdist[Rziter,1] = np.argmax((R0-R1)**2/R0)+1
+
+                    if Rdist[Rziter,0] < RzTol:
+                        RzConverged = 1
+                        break
+
+                    if Rziter > minRziter:
+                        if np.mean(Rdist[Rziter-100:Rziter-50,0]) <= (np.mean(Rdist[Rziter-50:Rziter,0]) + 5e-4):
+                            RzConverged = 0
+                            break
+
+                    R0 = (1-update_R)*R0 + update_R*R1
                     mask = np.outer(np.ones(wpts), R0) <= np.outer(wgrid, np.ones(zpts))
                     mask = mask.flatten('F')
 
-                    reset_flag = 0
-                    Rdist = np.zeros((maxRziter,2))
+                    # Done with Rz iteration
 
-                    for Rziter in range(0,maxRziter):
+                if abs(wL1-wL) < wLtol:
+                    # If done more than one F iteration
+                    wstep_old = np.copy(wstep)
+                    if nu0-nu1 > 1e-2 or gamma0-gamma1 > 1e-2:
+                        # Will have heterogeneous R
+                        wL1 = lowestw(R1)
+                    else:
+                        wL1 = np.min(R1)
 
-                        # Solve for the distribution of offers
+                    wL = wL1*update_wL + wL*(1-update_wL)
+                    wgrid = np.linspace(0,1,wpts)**wpow * (wbar-wL) + wL
+                    wstep = np.zeros(len(wgrid))
+                    wmid = 0.5*(wgrid[0:-1] + wgrid[1:])
+                    wstep[1:-1] = wmid[1:] - wmid[0:-1]
+                    wstep[0] = wmid[0]-wgrid[0]
+                    wstep[-1] = wgrid[-1]-wmid[-1]
 
-                        for Gwziter in range(0,2000):
+                    # Rescale the density
+                    F0 = F0*wstep_old/wstep
+                    F0 = F0/F0[wpts-1]
 
-                            # print(homotop_i,Fi,wbar_i,niter,wL_i,Rziter,Gwziter)
-                            Gtilde = np.trapz(np.outer(Psis,np.ones(wpts)) * Gwz0.T, zgrid, axis=0)
-                            # Compute theta by taking derivatives of Gtilde
-                            thw[1:wpts-1] = (Gtilde[2:wpts] - Gtilde[0:wpts-2])/(wgrid[2:wpts] - wgrid[0:wpts-2])
-                            thw[0] = (Gtilde[1] - Gtilde[0])/(wgrid[1] - wgrid[0])
-                            thw[wpts-1] = (Gtilde[wpts-1] - Gtilde[wpts-2])/(wgrid[wpts-1] - wgrid[wpts-2])
-                            [resid,Gwz_1,C,D] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
-                            Gwz_1 = Gwz_1.flatten('F')
-                            Gwz_1[mask == 0] = 0
-                            Gwz_1 = Gwz_1.reshape((wpts,zpts), order='F')
-                            # Impose adding up to Gwz_1
-                            Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
-                            norm_resid = np.max(abs(Gwz_1 - Gwz0))
-                            abs_resid = np.max(abs(resid))
-                            Gwz0 = update_Gwz*Gwz_1 + (1-update_Gwz)*Gwz0
-                            abs_tol = np.max([RzTol,(minRziter - Rziter - 1)/minRziter*1e-3 + (Rziter+1)/minRziter*RzTol])
-                            norm_tol = abs_tol
-                            if abs_resid < abs_tol or norm_resid < norm_tol:
-                                break
-                        if Gwziter >= 1999:
-                            print("No Gwz converge",homotop_i, Fi, wbar_i,niter,wL_i,Rziter,Gwziter)
-                        [resid,Gwz_1,R1,VpRz] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
-                        Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
-                        Rdist[Rziter,0] = np.max((R0-R1)**2/R0)
-                        Rdist[Rziter,1] = np.argmax((R0-R1)**2/R0)+1
+                    if RzConverged == 1:
+                        break
+                    else:
+                        print("Rz did not converge, though wL did")
 
-                        if Rdist[Rziter,0] < RzTol:
-                            RzConverged = 1
-                            break
+            # Done looking for the lower bound w_L
 
-                        if Rziter > minRziter:
-                            if np.mean(Rdist[Rziter-100:Rziter-50,0]) <= (np.mean(Rdist[Rziter-50:Rziter,0]) + 5e-4):
-                                RzConverged = 0
-                                break
+            Gtilde = np.trapz(np.outer(Psis,np.ones(wpts)) * Gwz_1.T, zgrid, axis=0)
+            Gtilde = Gtilde/Gtilde[wpts-1]
 
-                        R0 = (1-update_R)*R0 + update_R*R1
-                        mask = np.outer(np.ones(wpts), R0) <= np.outer(wgrid, np.ones(zpts))
-                        mask = mask.flatten('F')
+            # Recover steady state n(z) and integrate to n
+            for zi in range(0,zpts):
+                indic = wgrid <= R1[zi]
+                Rzi_disc = np.max([sum(indic),1])
+                Rzi = np.min([wgrid[wpts-1], np.max([wgrid[0],R1[zi]])])
 
-                        # Done with Rz iteration
+                FR = np.interp(Rzi,wgrid,F0,left=0,right=0)
+                GR = np.interp(Rzi,wgrid,Gtilde,left=0,right=0)
 
-                    if abs(wL1-wL) < wLtol:
-                        # If done more than one F iteration
-                        wstep_old = np.copy(wstep)
-                        if nu0-nu1 > 1e-2 or gamma0-gamma1 > 1e-2:
-                            # Will have heterogeneous R
-                            wL1 = lowestw(R1)
-                        else:
-                            wL1 = np.min(R1)
+                nz1[zi] = (gamma0*(1-FR)+(1-gamma0)*r0z[zi]*(1-GR) ) \
+                    /(delta+gamma0*(1-FR) + (1-gamma0)*r0z[zi]*(1-GR))
 
-                        wL = wL1*update_wL + wL*(1-update_wL)
-                        wgrid = np.linspace(0,1,wpts)**wpow * (wbar-wL) + wL
-                        wstep = np.zeros(len(wgrid))
-                        wmid = 0.5*(wgrid[0:-1] + wgrid[1:])
-                        wstep[1:-1] = wmid[1:] - wmid[0:-1]
-                        wstep[0] = wmid[0]-wgrid[0]
-                        wstep[-1] = wgrid[-1]-wmid[-1]
+            n1 = np.inner(nz1*Omegaz, zstep)
+            ndist = abs(n1-n)/n
 
-                        # Rescale the density
-                        F0 = F0*wstep_old/wstep
-                        F0 = F0/F0[wpts-1]
+            if ndist < ntol:
+                break
+            else:
+                n = (1.-update_n)*n + update_n*n1
+                nz = (1.-update_n)*nz + update_n*nz1
+                Psis = nz * Omegaz / np.inner(zstep, nz * Omegaz)
+                Psis = Psis / np.sum(Psis * zstep)  # renorm to integrate to 1
+                means = np.inner(zgrid, (Psis * zstep))
 
-                        if RzConverged == 1:
-                            break
-                        else:
-                            print("Rz did not converge, though wL did")
+            for zi in range(0,zpts):
+                r1z[zi] = rhoz1(zgrid[zi],nz)
+                r0z[zi] = rhoz0(zgrid[zi],nz)
 
-                # Done looking for the lower bound w_L
+        # Done solving for n
 
-                Gtilde = np.trapz(np.outer(Psis,np.ones(wpts)) * Gwz_1.T, zgrid, axis=0)
-                Gtilde = Gtilde/Gtilde[wpts-1]
+        #solve for l(w,z)
+        zgrid_wz = np.zeros((wpts,zpts))
+        hdir_wz = np.zeros((wpts,zpts))
+        href_wz = np.zeros((wpts, zpts))
+        r1z_wz  = np.zeros((wpts, zpts))
+        zused   = np.ones(wpts,dtype=np.int)*zpts
 
-                # Recover steady state n(z) and integrate to n
-                for zi in range(0,zpts):
-                    indic = wgrid <= R1[zi]
-                    Rzi_disc = np.max([sum(indic),1])
-                    Rzi = np.min([wgrid[wpts-1], np.max([wgrid[0],R1[zi]])])
+        pi0 = Lw[0]*(p-wL)
 
-                    FR = np.interp(Rzi,wgrid,F0,left=0,right=0)
-                    GR = np.interp(Rzi,wgrid,Gtilde,left=0,right=0)
+        lbarw_resid = lambda lbarwH: lbarwH*delta - Omegaz/M*((1-nz)*gamma0+ nz*gamma1) - gamma1*Psis*(nu1*nz+(1-nz)*nu0)*np.trapz(lbarwH,zgrid, axis=0)
 
-                    nz1[zi] = (gamma0*(1-FR)+(1-gamma0)*r0z[zi]*(1-GR) ) \
-						/(delta+gamma0*(1-FR) + (1-gamma0)*r0z[zi]*(1-GR))
+        lbarw, infodict, flag, mesg = fsolve(lbarw_resid, Omegaz/M, full_output=True)
+        hdir_wz[wpts-1, :] = Omegaz/M*((1-nz)*gamma0+ nz*gamma1)
+        href_wz[wpts-1,:] = gamma1*Psis*(nu1*nz+(1-nz)*nu0)
+        r1z_wz[wpts-1,:] = 0.
 
-                n1 = np.inner(nz1*Omegaz, zstep)
-                ndist = abs(n1-n)/n
+        Lw[wpts-1] = np.trapz(lbarw, zgrid)
 
-                if ndist < ntol:
-                    break
-                else:
-                    n = (1.-update_n)*n + update_n*n1
-                    nz = (1.-update_n)*nz + update_n*nz1
-                    Psis = nz * Omegaz / np.inner(zstep, nz * Omegaz)
-                    Psis = Psis / np.sum(Psis * zstep)  # renorm to integrate to 1
-                    means = np.inner(zgrid, (Psis * zstep))
+        pibarw = Lw[wpts-1]*(p-wgrid[wpts-1])
+        if flag != 1:
+            print("Labor force, lbarw, not solved")
 
-                for zi in range(0,zpts):
-                    r1z[zi] = rhoz1(zgrid[zi],nz)
-                    r0z[zi] = rhoz0(zgrid[zi],nz)
+        # Wage distribution for everyone
+        lwz[wpts-1,:] = lbarw.copy()
+        indicz = np.zeros((wpts,zpts),dtype = np.int)
+        for wi in range(0,wpts):
+            indicz[wi] = R1 <= wgrid[wi]
 
-            # Done solving for n
+        for wi in range(0,wpts-1):
+            beta_z = delta + gamma1*(1-F0[wi]) + (1-gamma1)*r1z*(1-Gtilde[wi])
+            hdir_z = Omegaz/M * ((1-nz)*gamma0*indicz[wi] + nz*gamma1*Gwz_1[wi])
+            href_z = gamma1*Psis*((1-nz)*nu0*indicz[wi] + nz*nu1*Gwz_1[wi])
+            r1z_z  = r1z
+            # solve the edge, where R1(z)<wgrid(wi)
+            zRm1 = sum(indicz[wi])
+            zRm1 = int(max([zRm1,1]))
+            if zRm1 <= (zpts-1):
+                beta_z[R1>wgrid[wi]] = 0.
+                hdir_z[R1>wgrid[wi]] = 0.
+                href_z[R1>wgrid[wi]] = 0.
+                r1z_z[R1>wgrid[wi]] = 0.
+                Omegaz_endo = Omegaz.copy()
+                zg_endo = zgrid.copy()
+                zg_endo[R1>wgrid[wi]] = 0
+                Omegaz_endo[R1>wgrid[wi]] = 0.
+                zindif = -1
+                for zR1 in range(0,zpts):
+                # by linear interpolation, find points beyond the threshold
+                    if R1[zR1] > wgrid[wi]:
+                        if zR1>0:
+                            if R1[zR1-1] <= wgrid[wi]:
+                                zindif = (wgrid[wi] - R1[zR1-1])*(zgrid[zR1] - zgrid[zR1-1])/(R1[zR1] - R1[zR1-1]) + zgrid[zR1-1]
+                                zindif = max([z0,zindif])
+                        if zR1 < zpts-1:
+                            if R1[zR1+1] <= wgrid[wi]:
+                                zindif = (wgrid[wi] - R1[zR1+1])*(zgrid[zR1] - zgrid[zR1+1])/(R1[zR1] - R1[zR1+1]) + zgrid[zR1+1]
+                                zindif = max([z0,zindif])
+                        if zindif>-1:
+                            zg_endo[zR1] = zindif
+                            beta_zfun = lambda zR: np.interp(zR,zgrid,beta_z)
+                            hdir_zfun = lambda zR: np.interp(zR,zgrid, Omegaz/M*((1-nz)*gamma0 + nz*gamma1*Gwz_1[wi]))
+                            href_zfun = lambda zR: np.interp(zR,zgrid, gamma1*Psis*((1-nz)*nu0 + nu1*nz*Gwz_1[wi]))
+                            beta_z[zR1] = beta_zfun(zindif)
+                            hdir_z[zR1] = hdir_zfun(zindif)
+                            href_z[zR1] = href_zfun(zindif)
+                            Omegaz_endo[zR1] = np.interp(zindif, zgrid, Omegaz/M)
+                            r1z_z[zR1] = np.interp(zindif, zgrid, r1z)
+                            zindif = -1
+                #end interpolation for edge case
+                nonzero_lwz = zg_endo>0
+                zg_endo   = np.trim_zeros( zg_endo )
+                beta_z = np.trim_zeros( beta_z )
+                hdir_z = np.trim_zeros( hdir_z )
+                href_z = np.trim_zeros( href_z )
+                Omegaz_endo = np.trim_zeros(Omegaz_endo)
+                r1z_z = np.trim_zeros(r1z_z)
+                lwz_resid = lambda lwzH: lwzH*beta_z - hdir_z - np.trapz(lwzH,zg_endo, axis=0)*href_z
 
-            #solve for l(w,z)
-            zgrid_wz = np.zeros((wpts,zpts))
-            hdir_wz = np.zeros((wpts,zpts))
-            href_wz = np.zeros((wpts, zpts))
-            r1z_wz  = np.zeros((wpts, zpts))
-            zused   = np.ones(wpts,dtype=np.int)*zpts
-            # Construct L(0), L(wpts) and hence profit
+                lbarwTemp, infodict, flag, mesg = fsolve(lwz_resid, Omegaz_endo/M, full_output=True)
+                lwz[wi,nonzero_lwz] = lbarwTemp.copy()
+                Lw[wi] = np.trapz(lwz[wi,nonzero_lwz])
+                zused[wi] = len(beta_z)
 
-            # GR = 0  # everyone will take a dominating offer at the lowest wage
-            # zused[0] =0
-            # for zi in range(0,zpts):
-            #     if( R1[zi]<=wL ):
-            #         lwz[0,zi] = (Omegaz[zi]/M*gamma0*(1-nz[zi]))/(delta+gamma1 + (1-gamma1)* r1z[zi]*(1-GR))
-            #         zused[0]+=1
-            #         hdir_wz[0,zi] = Omegaz/M* gamma0*(1-nz[zi])
-            #         href_wz[0,zi] = gamma1*Psis[zi]*(1-nz)*nu0
-            #         r1z_wz[0,zi]  = r1z[zi]
-            #     if( zi<zpts-1):
-            #         if( R1[zi]<=wL and R1[zi+1]>wL ):
-            #             wt = (np_interp_mono(wL,R1,zgrid) - zgrid[zi] )/(zgrid[zi+1]-zgrid[zi])
-            #             lwz[0,zi+1] = lwz[0,zi]*wt
-            #             zused[0] += 1
-            #             hdir_wz[0, zi+1] = wt * Omegaz/M* gamma0 * (1 - nz[zi])
-            #             href_wz[0, zi+1] = wt * gamma1 * Psis[zi] * (1 - nz) * nu0
-            #             r1z_wz[0, zi+1] = r1z[zi]
-            #     if( zi>0 ):
-            #         if( R1[zi]<=wL and R1[zi-1]>wL ):
-            #             wt = (zgrid[zi]-np_interp_mono(wL,R1,zgrid))/(zgrid[zi]-zgrid[zi-1])
-            #             lwz[0,zi-1] = lwz[0,zi]*wt
-            #             zused[0] += 1
-            #             hdir_wz[0, zi-1] = wt * Omegaz/M* gamma0 * (1 - nz[zi])
-            #             href_wz[0, zi-1] = wt * gamma1 * Psis[zi] * (1 - nz) * nu0
-            #             r1z_wz[0, zi-1] = r1z[zi]
-            #
-            # Lw[0] = np.trapz(lwz[0,:],zgrid)
+            else:
+                lwz_resid = lambda lwzH: lwzH*beta_z - hdir_z - np.trapz(lwzH*zgrid, axis=0)*href_z
+                lwzTemp, infodict, flag, mesg = fsolve(lwz_resid, Omegaz, full_output=True)
+                lwz[wi,:] = lwzTemp.copy()
+                Lw[wi] = np.trapz(lwz[wi,:],zgrid)
+                nonzero_lwz =  indicz[wi]
+                zg_endo = zgrid.copy()
+                zused[wi] = zpts
 
-            if nu0 < 1e-6 and nu1 < 1e-6:
-                # this is recovering the BM distribution when everyone has the
-                # same reservation value and hence our assumption that lwz(1,:) is
-                # nonzero only at z=1 is not held
-                lwLz = lwz[0,:].copy()
-                lwLz[1:] = lwLz[0]/Omegaz[0]*Omegaz[1:]
-                Lw[0] = np.trapz(lwLz,zgrid)
+            diryield_wz[wi,nonzero_lwz] = hdir_z.copy()
+            refyield_wz[wi,nonzero_lwz] = href_z*np.trapz(lwz[wi,nonzero_lwz],zg_endo, axis=0)
 
-            pi0 = Lw[0]*(p-wL)
-
-            lbarw_resid = lambda lbarwH: lbarwH*delta - Omegaz/M*((1-nz)*gamma0+ nz*gamma1) - gamma1*Psis*(nu1*nz+(1-nz)*nu0)*np.trapz(lbarwH,zgrid, axis=0)
-
-            lbarw, infodict, flag, mesg = fsolve(lbarw_resid, Omegaz/M, full_output=True)
-            hdir_wz[wpts-1, :] = Omegaz/M*((1-nz)*gamma0+ nz*gamma1)
-            href_wz[wpts-1,:] = gamma1*Psis*(nu1*nz+(1-nz)*nu0)
-            r1z_wz[wpts-1,:] = 0.
-
-            Lw[wpts-1] = np.trapz(lbarw, zgrid)
-
-            pibarw = Lw[wpts-1]*(p-wgrid[wpts-1])
             if flag != 1:
-                print("Labor force, lbarw, not solved")
-
-            # Wage distribution for everyone
-            lwz[wpts-1,:] = lbarw.copy()
-            indicz = np.zeros((wpts,zpts),dtype = np.int)
-            for wi in range(0,wpts):
-                indicz[wi] = R1 <= wgrid[wi]
-
-            for wi in range(0,wpts-1):
-                beta_z = delta + gamma1*(1-F0[wi]) + (1-gamma1)*r1z*(1-Gtilde[wi])
-                hdir_z = Omegaz/M * ((1-nz)*gamma0*indicz[wi] + nz*gamma1*Gwz_1[wi])
-                href_z = gamma1*Psis*((1-nz)*nu0*indicz[wi] + nz*nu1*Gwz_1[wi])
-                r1z_z  = r1z
-                # solve the edge, where R1(z)<wgrid(wi)
-                zRm1 = sum(indicz[wi])
-                zRm1 = int(max([zRm1,1]))
-                if zRm1 <= (zpts-1):
-                    beta_z[R1>wgrid[wi]] = 0.
-                    hdir_z[R1>wgrid[wi]] = 0.
-                    href_z[R1>wgrid[wi]] = 0.
-                    r1z_z[R1>wgrid[wi]] = 0.
-                    Omegaz_endo = Omegaz.copy()
-                    zg_endo = zgrid.copy()
-                    zg_endo[R1>wgrid[wi]] = 0
-                    Omegaz_endo[R1>wgrid[wi]] = 0.
-                    zindif = -1
-                    for zR1 in range(0,zpts):
-                    # by linear interpolation, find points beyond the threshold
-                        if R1[zR1] > wgrid[wi]:
-                            if zR1>0:
-                                if R1[zR1-1] <= wgrid[wi]:
-                                    zindif = (wgrid[wi] - R1[zR1-1])*(zgrid[zR1] - zgrid[zR1-1])/(R1[zR1] - R1[zR1-1]) + zgrid[zR1-1]
-                                    zindif = max([z0,zindif])
-                            if zR1 < zpts-1:
-                                if R1[zR1+1] <= wgrid[wi]:
-                                    zindif = (wgrid[wi] - R1[zR1+1])*(zgrid[zR1] - zgrid[zR1+1])/(R1[zR1] - R1[zR1+1]) + zgrid[zR1+1]
-                                    zindif = max([z0,zindif])
-                            if zindif>-1:
-                                zg_endo[zR1] = zindif
-                                beta_zfun = lambda zR: np.interp(zR,zgrid,beta_z)
-                                hdir_zfun = lambda zR: np.interp(zR,zgrid, Omegaz/M*((1-nz)*gamma0 + nz*gamma1*Gwz_1[wi]))
-                                href_zfun = lambda zR: np.interp(zR,zgrid, gamma1*Psis*((1-nz)*nu0 + nu1*nz*Gwz_1[wi]))
-                                beta_z[zR1] = beta_zfun(zindif)
-                                hdir_z[zR1] = hdir_zfun(zindif)
-                                href_z[zR1] = href_zfun(zindif)
-                                Omegaz_endo[zR1] = np.interp(zindif, zgrid, Omegaz/M)
-                                r1z_z[zR1] = np.interp(zindif, zgrid, r1z)
-                                zindif = -1
-                    #end interpolation for edge case
-                    nonzero_lwz = zg_endo>0
-                    zg_endo   = np.trim_zeros( zg_endo )
-                    beta_z = np.trim_zeros( beta_z )
-                    hdir_z = np.trim_zeros( hdir_z )
-                    href_z = np.trim_zeros( href_z )
-                    Omegaz_endo = np.trim_zeros(Omegaz_endo)
-                    r1z_z = np.trim_zeros(r1z_z)
-                    lwz_resid = lambda lwzH: lwzH*beta_z - hdir_z - np.trapz(lwzH,zg_endo, axis=0)*href_z
-
-                    lbarwTemp, infodict, flag, mesg = fsolve(lwz_resid, Omegaz_endo/M, full_output=True)
-                    lwz[wi,nonzero_lwz] = lbarwTemp.copy()
-                    Lw[wi] = np.trapz(lwz[wi,nonzero_lwz])
-                    zused[wi] = len(beta_z)
-
-                else:
-                    lwz_resid = lambda lwzH: lwzH*beta_z - hdir_z - np.trapz(lwzH*zgrid, axis=0)*href_z
-                    lwzTemp, infodict, flag, mesg = fsolve(lwz_resid, Omegaz, full_output=True)
-                    lwz[wi,:] = lwzTemp.copy()
-                    Lw[wi] = np.trapz(lwz[wi,:],zgrid)
-                    nonzero_lwz =  indicz[wi]
-                    zg_endo = zgrid.copy()
-                    zused[wi] = zpts
-
-                diryield_wz[wi,nonzero_lwz] = hdir_z.copy()
-                refyield_wz[wi,nonzero_lwz] = href_z*np.trapz(lwz[wi,nonzero_lwz],zg_endo, axis=0)
-
-                if flag != 1:
-                    print("Did not solve labor force correctly")
-                zgrid_wz[wi,0:zused[wi]] = zg_endo
-                hdir_wz[wi,0:zused[wi]] = hdir_z
-                href_wz[wi,0:zused[wi]] = href_z
-                r1z_wz[wi,0:zused[wi]] = r1z_z
-            #end wi loop
+                print("Did not solve labor force correctly")
+            zgrid_wz[wi,0:zused[wi]] = zg_endo
+            hdir_wz[wi,0:zused[wi]] = hdir_z
+            href_wz[wi,0:zused[wi]] = href_z
+            r1z_wz[wi,0:zused[wi]] = r1z_z
+           #end wi loop
 
 
             piz_0 = Lw*(p-wgrid)
@@ -738,33 +729,32 @@ for homotop_i in range(0,nstep):
             minpiz_0 = np.min(piz_0[1:wpts-1])
             minpiz_0 = (1-update_wbar)*minpiz_0 + update_wbar*pi0  #mix in the profit from the very very lowest firm.
             refzi = np.argmin(piz_0[1:wpts-1])
+            var_pi = sum(np.square(piz_0 - Epiz_0)) / wpts
+
             pibarw = Lw[wpts-1]*(p - wgrid[wpts-1])
-            wbar_new = -(minpiz_0/Lw[wpts-1] - p)
-            if wbar_new > p:
-                wbar_new = p
-                err_wbarnew = err_wbarnew +1
-            # now that we have the ends of this distribution, return and reset the domain
-            wbar_old = wbar
-            wbar = update_wbar*wbar_new + (1 - update_wbar)*wbar
-            wstep_old = wstep.copy()
-
-            wgrid	= np.linspace(0,1,wpts)**wpow*(wbar-wL)+ wL
-            wstep	= np.zeros(len(wgrid))
-            wmid	= 0.5*(wgrid[:-1]+wgrid[1:])
-            wstep[1:-1] = wmid[1:]-wmid[:-1]
-            wstep[0] = wmid[0] - wgrid[0]
-            wstep[-1] = wgrid[-1] - wmid[-1]
-
-            F0 = F0*wstep_old/wstep
-            F0 = F0/F0[wpts-1]
-
-            if abs(wbar_old - wbar_new) < 5e-5 and abs(minpiz_0 -pibarw) <5e-5:
-                break
+            # wbar_new = -(minpiz_0/Lw[wpts-1] - p)
+            #
+            # # now that we have the ends of this distribution, return and reset the domain
+            # wbar_old = wbar
+            # wbar = update_wbar*wbar_new + (1 - update_wbar)*wbar
+            # wstep_old = wstep.copy()
+            #
+            # wgrid	= np.linspace(0,1,wpts)**wpow*(wbar-wL)+ wL
+            # wstep	= np.zeros(len(wgrid))
+            # wmid	= 0.5*(wgrid[:-1]+wgrid[1:])
+            # wstep[1:-1] = wmid[1:]-wmid[:-1]
+            # wstep[0] = wmid[0] - wgrid[0]
+            # wstep[-1] = wgrid[-1] - wmid[-1]
+            #
+            # F0 = F0*wstep_old/wstep
+            # F0 = F0/F0[wpts-1]
+            #
+            # if abs(wbar_old - wbar_new) < 5e-5 and abs(minpiz_0 -pibarw) <5e-5:
+            #     break
             #end wbar_i
 
         # Now solve for F1 over all wi
         F1 = np.zeros(wpts)
-        Lw_implied = Lw.copy()
 
         #use hdir_wz, href_wz, zg_endo, r1z_endo from above
         h_wz = np.zeros((wpts,zpts))
@@ -772,87 +762,48 @@ for homotop_i in range(0,nstep):
             zR1 = zused[wi]
             h_wz[wi,0:zR1] = hdir_wz[wi,0:zR1] + Lw[wi]*href_wz[wi,0:zR1]
                                                        
-        eqPiobj = lambda F1in: sum(np.square(eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
-        eqPiobj_J = lambda F1in: 2*eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde) * eqPi_jac(F1in,minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
+        # eqPiobj = lambda F1in: sum(np.square(eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
+        # eqPiobj_J = lambda F1in: 2*eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde) * eqPi_jac(F1in,minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
+        # bnds = np.zeros((wpts,2))
+        # bnds[:,1] = 1.
+        # bnds[wpts-1,0] = 1.
+        # cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1] })
+        #
+        # res_j = minimize(eqPiobj, F0, jac= eqPiobj_J,method='SLSQP', bounds=bnds, constraints = cons)
 
-        bnds = np.zeros((wpts,2))
-        bnds[:,1] = 1.
-        bnds[wpts-1,0] = 1.
-        cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1] })
+        eqPiwbarobj = lambda wF1in: sum(np.square(eqPiwbar(wF1in, Lw[wpts-1], h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
 
-        res_j = minimize(eqPiobj, F0, jac= eqPiobj_J,method='SLSQP', bounds=bnds, constraints = cons)
+        bnds_wbarF = np.zeros((wpts+1,2))
+        bnds_wbarF[:,1] = 1.
+        bnds_wbarF[wpts,0] = 1.
+        bnds_wbarF[0,0] = wL
+        cons_wbarF = ({'type': 'ineq', 'fun': lambda x: x[2:] - x[1:-1] })
+        wbarFin = np.zeros(1+wpts)
+        wbarFin[0]=wbar
+        wbarFin[1:]=F0
+        res_wbarF  = minimize(eqPiwbarobj, wbarFin, method='SLSQP', bounds=bnds_wbarF, constraints = cons_wbarF)
 
-        # for wi in range(wpts-1,1,-1):
-        #     hdir_wz = Omegaz/M*((1-nz)*gamma0*indicz[wi] + nz*gamma1*Gwz_1[wi])
-        #     href_wz = gamma1*Psis*((1-nz)*nu0*indicz[wi] + nu1*nz*Gwz_1[wi])
-        #     zRm1 = sum(indicz[wi,:])
-        #     if zRm1 <= zpts-1 and zRm1 > 1:
-        #         zR1 = zRm1 + 1
-        #         # By linear interpolation
-        #         zindif = (wgrid[wi] - R1[zRm1])*(zgrid[zR1]-zgrid[zRm1])/(R1[zR1]-R1[zRm1])+zgrid[zRm1]
-        #         zg_endo = np.append(zgrid[0:zRm1], zindif)
-        #         hdir_wzfun = lambda zR: np.interp(zR,zgrid,Omegaz/M*((1-nz)*gamma0 + nz*gamma1*Gwz_1[wi]))
-        #         href_wzfun = lambda zR: np.interp(zR,np.arange(1,31), gamma1*Psis*((1-nz)*nu0 + nu1*nz*Gwz_1[wi]))
-        #         hdir_wz[zR1] = hdir_wzfun(zindif)
-        #         hdir_wz = hdir_wz[0:zR1].copy()
-        #         href_wz[zR1] = href_wzfun(zindif)
-        #         href_wz = href_wz[0:zR1].copy()
-        #         r1z_endo = np.append(r1z[0:zRm1], np.interp(zindif,zgrid,r1z))
-        #     else:
-        #         zR1 = zpts
-        #         zg_endo = zgrid.copy()
-        #         r1z_endo = r1z.copy()
-        #
-        #     hwz0[wi,0:zR1] = hdir_wz + Lw[wi]*href_wz
-        #
-        #     F1_resid = lambda logF1w: minpiz_0/(p - wgrid[wi]) \
-        #         - np.trapz(hwz0[wi,0:zR1]/(delta + gamma1*(1-np.exp(logF1w)) + (1-gamma1)*r1z_endo*(1-Gtilde[wi])), zg_endo, axis=0)
-        #
-        #     F0temp = np.log(F0[wi])
-        #     if F0[wi] < 1e-3:
-        #         F0temp = np.log(1e-3)
-        #     #check corner solutions (i.e. 0)
-        #     if F1_resid(0.)>0. :
-        #         F1[wi] = 0.
-        #     else:
-        #         F1Temp, infodict, flag, mesg = fsolve(F1_resid,F0temp , full_output=True)
-        #         F1[wi] = F1Temp.copy()
-        #         F1[wi] = np.exp(F1[wi])
-        #
-        #     # resid output from fsolve?
-        #     # F1w_normresid[wi] = np.sum(abs(F1w_resid))
-        #     Lw_implied[wi] = np.trapz(hwz0[wi,0:zR1]/(delta + gamma1*(1-F1[wi]) + (1-gamma1)*r1z_endo*(1-Gtilde[wi])), zg_endo, axis=0)
-        #     piz_implied = Lw_implied*(p-wgrid)
-        #     if flag != 1:
-        #         if F1[wi] < 1e-4 or abs(F1_resid(-10)) <= abs(F1_resid(-9)):
-        #             F1[wi] = 0
-        #             min_wi_Fpos[wi] = 1
+        F1 = res_wbarF.x[1:]
 
         difF = (F1-F0)
 
         if np.max(abs(difF)) < 1e-4:
             break
-
-        F1 = F1/F1[-1]
         F0 = update_F*F1 + (1-update_F)*F0
+        wbar_old = wbar
+        wbar_new = res_j.x[0]
+        wbar = update_wbar * wbar_new + (1 - update_wbar) * wbar
+        wstep_old = wstep.copy()
 
-        # Impose monotonicity
-        for wi in range(1,wpts):
-            if F0[wi] < F0[wi-1]:
-                nonmonocount = nonmonocount+1
-                nonmonoval = F0[wi] - F0[wi-1] + nonmonoval
-                F0[wi] = F0[wi-1]
+        wgrid = np.linspace(0, 1, wpts) ** wpow * (wbar - wL) + wL
+        wstep = np.zeros(len(wgrid))
+        wmid = 0.5 * (wgrid[:-1] + wgrid[1:])
+        wstep[1:-1] = wmid[1:] - wmid[:-1]
+        wstep[0] = wmid[0] - wgrid[0]
+        wstep[-1] = wgrid[-1] - wmid[-1]
 
-        F0 = F0/F0[wpts-1]
-        F0[0] = np.min([1e-4, np.min(F0)/10])
-        if nonmonocount > 0:
-            print("Nonmonotone F a total of %2.0d" % nonmonoval)
-
-        if err_wbarnew > 0:
-            print("wbar_new > 0 %2.0d" % err_wbarnew)
-
-        if nonmonolwz > 0:
-            print("Nonmonotone lwz a total of %2.0d" % nonmonolwz)
+        if var_pi >1e-7:
+            print("variance in pi is %f" % var_pi)
 
         delta = (gamma0 + np.trapz(Omegaz*r0z,zgrid,axis=0)) * 0.06/(1-0.06)
 
