@@ -249,7 +249,7 @@ def eqPi(F1in, pi_in,hwz0,r1z_endo,zg_endo,zused,Gtilde) :
     global p
 
     F1_resid = np.zeros(wpts)
-    for wi in range(wpts-1,1,-1):
+    for wi in range(wpts-2,0,-1):
         F1_resid[wi] = pi_in/(p - wgrid[wi]) \
             - np.trapz(hwz0[wi,0:zused[wi]]/(delta + gamma1*(1-F1in[wi]) + (1-gamma1)*r1z_endo[wi,0:zused[wi]]*(1-Gtilde[wi])), zg_endo[wi,0:zused[wi]], axis=0)
 
@@ -263,11 +263,11 @@ def eqPi_jac(F1in, pi_in,hwz0,r1z_endo,zg_endo,zused,Gtilde) :
     global zgrid
     global p
 
-    F1_resid_jac = np.zeros((wpts,wpts))
-    for wi in range(wpts-1,1,-1):
+    F1_resid_jac = np.zeros(wpts)
+    for wi in range(wpts-2,0,-1):
         F1_resid_jac[wi] = -gamma1*np.trapz(hwz0[wi,0:zused[wi]]/np.square(delta + gamma1*(1-F1in[wi]) + (1-gamma1)*r1z_endo[wi,0:zused[wi]]*(1-Gtilde[wi])), zg_endo[wi,0:zused[wi]], axis=0)
 
-    return(F1_res_jac)
+    return(F1_resid_jac)
 
 ##### Solving networks and search
 
@@ -767,59 +767,66 @@ for homotop_i in range(0,nstep):
         Lw_implied = Lw.copy()
 
         #use hdir_wz, href_wz, zg_endo, r1z_endo from above
-        h_wz = np.zeros(wpts,zpts)
+        h_wz = np.zeros((wpts,zpts))
         for wi in range(1,wpts-1):
             zR1 = zused[wi]
             h_wz[wi,0:zR1] = hdir_wz[wi,0:zR1] + Lw[wi]*href_wz[wi,0:zR1]
+                                                       
+        eqPiobj = lambda F1in: sum(np.square(eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
+        eqPiobj_J = lambda F1in: 2*eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde) * eqPi_jac(F1in,minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
 
-        eqPiobj = lambda F1in: eqPi(F1in, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
-        eqPiobj_J = lambda F1in: eqPi_jac(F1in, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
+        bnds = np.zeros((wpts,2))
+        bnds[:,1] = 1.
+        bnds[wpts-1,0] = 1.
+        cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1] })
 
-        for wi in range(wpts-1,1,-1):
-            hdir_wz = Omegaz/M*((1-nz)*gamma0*indicz[wi] + nz*gamma1*Gwz_1[wi])
-            href_wz = gamma1*Psis*((1-nz)*nu0*indicz[wi] + nu1*nz*Gwz_1[wi])
-            zRm1 = sum(indicz[wi,:])
-            if zRm1 <= zpts-1 and zRm1 > 1:
-                zR1 = zRm1 + 1
-                # By linear interpolation
-                zindif = (wgrid[wi] - R1[zRm1])*(zgrid[zR1]-zgrid[zRm1])/(R1[zR1]-R1[zRm1])+zgrid[zRm1]
-                zg_endo = np.append(zgrid[0:zRm1], zindif)
-                hdir_wzfun = lambda zR: np.interp(zR,zgrid,Omegaz/M*((1-nz)*gamma0 + nz*gamma1*Gwz_1[wi]))
-                href_wzfun = lambda zR: np.interp(zR,np.arange(1,31), gamma1*Psis*((1-nz)*nu0 + nu1*nz*Gwz_1[wi]))
-                hdir_wz[zR1] = hdir_wzfun(zindif)
-                hdir_wz = hdir_wz[0:zR1].copy()
-                href_wz[zR1] = href_wzfun(zindif)
-                href_wz = href_wz[0:zR1].copy()
-                r1z_endo = np.append(r1z[0:zRm1], np.interp(zindif,zgrid,r1z))
-            else:
-                zR1 = zpts
-                zg_endo = zgrid.copy()
-                r1z_endo = r1z.copy()
+        res_j = minimize(eqPiobj, F0, jac= eqPiobj_J,method='SLSQP', bounds=bnds, constraints = cons)
 
-            hwz0[wi,0:zR1] = hdir_wz + Lw[wi]*href_wz
-
-            F1_resid = lambda logF1w: minpiz_0/(p - wgrid[wi]) \
-                - np.trapz(hwz0[wi,0:zR1]/(delta + gamma1*(1-np.exp(logF1w)) + (1-gamma1)*r1z_endo*(1-Gtilde[wi])), zg_endo, axis=0)
-
-            F0temp = np.log(F0[wi])
-            if F0[wi] < 1e-3:
-                F0temp = np.log(1e-3)
-            #check corner solutions (i.e. 0)
-            if F1_resid(0.)>0. :
-                F1[wi] = 0.
-            else:
-                F1Temp, infodict, flag, mesg = fsolve(F1_resid,F0temp , full_output=True)
-                F1[wi] = F1Temp.copy()
-                F1[wi] = np.exp(F1[wi])
-
-            # resid output from fsolve?
-            # F1w_normresid[wi] = np.sum(abs(F1w_resid))
-            Lw_implied[wi] = np.trapz(hwz0[wi,0:zR1]/(delta + gamma1*(1-F1[wi]) + (1-gamma1)*r1z_endo*(1-Gtilde[wi])), zg_endo, axis=0)
-            piz_implied = Lw_implied*(p-wgrid)
-            if flag != 1:
-                if F1[wi] < 1e-4 or abs(F1_resid(-10)) <= abs(F1_resid(-9)):
-                    F1[wi] = 0
-                    min_wi_Fpos[wi] = 1
+        # for wi in range(wpts-1,1,-1):
+        #     hdir_wz = Omegaz/M*((1-nz)*gamma0*indicz[wi] + nz*gamma1*Gwz_1[wi])
+        #     href_wz = gamma1*Psis*((1-nz)*nu0*indicz[wi] + nu1*nz*Gwz_1[wi])
+        #     zRm1 = sum(indicz[wi,:])
+        #     if zRm1 <= zpts-1 and zRm1 > 1:
+        #         zR1 = zRm1 + 1
+        #         # By linear interpolation
+        #         zindif = (wgrid[wi] - R1[zRm1])*(zgrid[zR1]-zgrid[zRm1])/(R1[zR1]-R1[zRm1])+zgrid[zRm1]
+        #         zg_endo = np.append(zgrid[0:zRm1], zindif)
+        #         hdir_wzfun = lambda zR: np.interp(zR,zgrid,Omegaz/M*((1-nz)*gamma0 + nz*gamma1*Gwz_1[wi]))
+        #         href_wzfun = lambda zR: np.interp(zR,np.arange(1,31), gamma1*Psis*((1-nz)*nu0 + nu1*nz*Gwz_1[wi]))
+        #         hdir_wz[zR1] = hdir_wzfun(zindif)
+        #         hdir_wz = hdir_wz[0:zR1].copy()
+        #         href_wz[zR1] = href_wzfun(zindif)
+        #         href_wz = href_wz[0:zR1].copy()
+        #         r1z_endo = np.append(r1z[0:zRm1], np.interp(zindif,zgrid,r1z))
+        #     else:
+        #         zR1 = zpts
+        #         zg_endo = zgrid.copy()
+        #         r1z_endo = r1z.copy()
+        #
+        #     hwz0[wi,0:zR1] = hdir_wz + Lw[wi]*href_wz
+        #
+        #     F1_resid = lambda logF1w: minpiz_0/(p - wgrid[wi]) \
+        #         - np.trapz(hwz0[wi,0:zR1]/(delta + gamma1*(1-np.exp(logF1w)) + (1-gamma1)*r1z_endo*(1-Gtilde[wi])), zg_endo, axis=0)
+        #
+        #     F0temp = np.log(F0[wi])
+        #     if F0[wi] < 1e-3:
+        #         F0temp = np.log(1e-3)
+        #     #check corner solutions (i.e. 0)
+        #     if F1_resid(0.)>0. :
+        #         F1[wi] = 0.
+        #     else:
+        #         F1Temp, infodict, flag, mesg = fsolve(F1_resid,F0temp , full_output=True)
+        #         F1[wi] = F1Temp.copy()
+        #         F1[wi] = np.exp(F1[wi])
+        #
+        #     # resid output from fsolve?
+        #     # F1w_normresid[wi] = np.sum(abs(F1w_resid))
+        #     Lw_implied[wi] = np.trapz(hwz0[wi,0:zR1]/(delta + gamma1*(1-F1[wi]) + (1-gamma1)*r1z_endo*(1-Gtilde[wi])), zg_endo, axis=0)
+        #     piz_implied = Lw_implied*(p-wgrid)
+        #     if flag != 1:
+        #         if F1[wi] < 1e-4 or abs(F1_resid(-10)) <= abs(F1_resid(-9)):
+        #             F1[wi] = 0
+        #             min_wi_Fpos[wi] = 1
 
         difF = (F1-F0)
 
