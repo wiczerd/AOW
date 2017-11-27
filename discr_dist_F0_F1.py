@@ -303,10 +303,10 @@ nu0eqnu1 = 0
 
 update_Gwz = 0.1
 update_R = 0.05
-update_wbar = 0.5
+update_wbar = 0.25
 update_n = 0.5
 update_wL = 0.2
-update_F = 0.05
+update_F = 0.25
 nstep =20
 th_update = 5
 wLtol = 1e-5
@@ -531,7 +531,7 @@ for homotop_i in range(0,nstep):
                         if abs_resid < abs_tol or norm_resid < norm_tol:
                             break
                     if Gwziter >= 1999:
-                        print("No Gwz converge",homotop_i, Fi, wbar_i,niter,wL_i,Rziter,Gwziter)
+                        print("No Gwz converge",homotop_i, Fi, niter,wL_i,Rziter,Gwziter)
                     [resid,Gwz_1,R1,VpRz] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
                     Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
                     Rdist[Rziter,0] = np.max((R0-R1)**2/R0)
@@ -762,36 +762,37 @@ for homotop_i in range(0,nstep):
             zR1 = zused[wi]
             h_wz[wi,0:zR1] = hdir_wz[wi,0:zR1] + Lw[wi]*href_wz[wi,0:zR1]
                                                        
-        # eqPiobj = lambda F1in: sum(np.square(eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
-        # eqPiobj_J = lambda F1in: 2*eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde) * eqPi_jac(F1in,minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
-        # bnds = np.zeros((wpts,2))
-        # bnds[:,1] = 1.
-        # bnds[wpts-1,0] = 1.
-        # cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1] })
+        eqPiobj = lambda F1in: sum(np.square(eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
+        eqPiobj_J = lambda F1in: 2*eqPi(F1in, minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde) * eqPi_jac(F1in,minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
+        bnds = np.zeros((wpts,2))
+        bnds[:,1] = 1.
+        bnds[wpts-1,0] = 1.
+        cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1] })
+
+        res_j = minimize(eqPiobj, F0, jac= eqPiobj_J,method='SLSQP', bounds=bnds, constraints = cons)
+
+        # eqPiwbarobj = lambda wF1in: sum(np.square(eqPiwbar(wF1in, Lw[wpts-1], h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
         #
-        # res_j = minimize(eqPiobj, F0, jac= eqPiobj_J,method='SLSQP', bounds=bnds, constraints = cons)
+        # bnds_wbarF = np.zeros((wpts+1,2))
+        # bnds_wbarF[:,1] = 1.
+        # bnds_wbarF[wpts,0] = 1.
+        # bnds_wbarF[0,0] = wL
+        # cons_wbarF = ({'type': 'ineq', 'fun': lambda x: x[2:] - x[1:-1] })
+        # wbarFin = np.zeros(1+wpts)
+        # wbarFin[0]=wbar
+        # wbarFin[1:]=F0
+        # res_wbarF  = minimize(eqPiwbarobj, wbarFin, method='SLSQP', bounds=bnds_wbarF, constraints = cons_wbarF)
 
-        eqPiwbarobj = lambda wF1in: sum(np.square(eqPiwbar(wF1in, Lw[wpts-1], h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
-
-        bnds_wbarF = np.zeros((wpts+1,2))
-        bnds_wbarF[:,1] = 1.
-        bnds_wbarF[wpts,0] = 1.
-        bnds_wbarF[0,0] = wL
-        cons_wbarF = ({'type': 'ineq', 'fun': lambda x: x[2:] - x[1:-1] })
-        wbarFin = np.zeros(1+wpts)
-        wbarFin[0]=wbar
-        wbarFin[1:]=F0
-        res_wbarF  = minimize(eqPiwbarobj, wbarFin, method='SLSQP', bounds=bnds_wbarF, constraints = cons_wbarF)
-
-        F1 = res_wbarF.x[1:]
+        F1 = res_j.x
 
         difF = (F1-F0)
 
-        if np.max(abs(difF)) < 1e-4:
+        if (np.max(abs(difF)) < 1e-4) | (np.sqrt(var_pi)/minpiz_0 <1e-2 ):
             break
         F0 = update_F*F1 + (1-update_F)*F0
         wbar_old = wbar
-        wbar_new = res_j.x[0]
+        pibarw = Lw[wpts - 1] * (p - wgrid[wpts - 1])
+        wbar_new = -(minpiz_0/Lw[wpts-1] - p)
         wbar = update_wbar * wbar_new + (1 - update_wbar) * wbar
         wstep_old = wstep.copy()
 
@@ -804,8 +805,12 @@ for homotop_i in range(0,nstep):
 
         if var_pi >1e-7:
             print("variance in pi is %f" % var_pi)
+        print("wbar is %f" % wbar_new)
+        print("profit is %f" % minpiz_0)
+        print("max difF is %f" % np.max(abs(difF)))
 
-        delta = (gamma0 + np.trapz(Omegaz*r0z,zgrid,axis=0)) * 0.06/(1-0.06)
+
+#        delta = (gamma0 + np.trapz(Omegaz*r0z,zgrid,axis=0)) * 0.06/(1-0.06)
 
     totemp = np.trapz(np.trapz(lwz,wgrid,axis=0),zgrid, axis=0)
 
