@@ -483,89 +483,95 @@ for homotop_i in range(0,nstep):
         for niter in range(0,maxniter):
 
             # Iterate on Rz until I get the lower bound on wages, actually not the lower bound given heterogeneity
-            wL_i = 1
-            wL1 = 0
+            # wL_i = 1
+            # wL1 = 0
 
-            for wL_i in range(0,maxwLiter):
+            # for wL_i in range(0,maxwLiter):
 
+            mask = np.outer(np.ones(wpts), R0) <= np.outer(wgrid, np.ones(zpts))
+            mask = mask.flatten('F')
+
+            reset_flag = 0
+            Rdist = np.zeros((maxRziter,2))
+
+            for Rziter in range(0,maxRziter):
+
+                # Solve for the distribution of offers
+
+                for Gwziter in range(0,2000):
+
+                    # print(homotop_i,Fi,wbar_i,niter,wL_i,Rziter,Gwziter)
+                    Gtilde = np.trapz(np.outer(Psis,np.ones(wpts)) * Gwz0.T, zgrid, axis=0)
+                    # Compute theta by taking derivatives of Gtilde
+                    thw[1:wpts-1] = (Gtilde[2:wpts] - Gtilde[0:wpts-2])/(wgrid[2:wpts] - wgrid[0:wpts-2])
+                    thw[0] = (Gtilde[1] - Gtilde[0])/(wgrid[1] - wgrid[0])
+                    thw[wpts-1] = (Gtilde[wpts-1] - Gtilde[wpts-2])/(wgrid[wpts-1] - wgrid[wpts-2])
+                    [resid,Gwz_1,C,D] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
+                    Gwz_1 = Gwz_1.flatten('F')
+                    Gwz_1[mask == 0] = 0
+                    Gwz_1 = Gwz_1.reshape((wpts,zpts), order='F')
+                    # Impose adding up to Gwz_1
+                    Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
+                    norm_resid = np.max(abs(Gwz_1 - Gwz0))
+                    abs_resid = np.max(abs(resid))
+                    Gwz0 = update_Gwz*Gwz_1 + (1-update_Gwz)*Gwz0
+                    abs_tol = np.max([RzTol,(minRziter - Rziter - 1)/minRziter*1e-3 + (Rziter+1)/minRziter*RzTol])
+                    norm_tol = abs_tol
+                    if abs_resid < abs_tol or norm_resid < norm_tol:
+                        break
+                if Gwziter >= 1999:
+                    print("No Gwz converge",homotop_i, Fi, niter,Rziter,Gwziter)
+                [resid,Gwz_1,R1,VpRz] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
+                Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
+                Rdist[Rziter,0] = np.max((R0-R1)**2/R0)
+                Rdist[Rziter,1] = np.argmax((R0-R1)**2/R0)+1
+
+                if Rdist[Rziter,0] < RzTol:
+                    RzConverged = 1
+                    break
+
+                if Rziter > minRziter:
+                    if np.mean(Rdist[Rziter-100:Rziter-50,0]) <= (np.mean(Rdist[Rziter-50:Rziter,0]) + 5e-4):
+                        RzConverged = 0
+                        break
+
+                R0 = (1-update_R)*R0 + update_R*R1
                 mask = np.outer(np.ones(wpts), R0) <= np.outer(wgrid, np.ones(zpts))
                 mask = mask.flatten('F')
 
-                reset_flag = 0
-                Rdist = np.zeros((maxRziter,2))
-
-                for Rziter in range(0,maxRziter):
-
-                    # Solve for the distribution of offers
-
-                    for Gwziter in range(0,2000):
-
-                        # print(homotop_i,Fi,wbar_i,niter,wL_i,Rziter,Gwziter)
-                        Gtilde = np.trapz(np.outer(Psis,np.ones(wpts)) * Gwz0.T, zgrid, axis=0)
-                        # Compute theta by taking derivatives of Gtilde
-                        thw[1:wpts-1] = (Gtilde[2:wpts] - Gtilde[0:wpts-2])/(wgrid[2:wpts] - wgrid[0:wpts-2])
-                        thw[0] = (Gtilde[1] - Gtilde[0])/(wgrid[1] - wgrid[0])
-                        thw[wpts-1] = (Gtilde[wpts-1] - Gtilde[wpts-2])/(wgrid[wpts-1] - wgrid[wpts-2])
-                        [resid,Gwz_1,C,D] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
-                        Gwz_1 = Gwz_1.flatten('F')
-                        Gwz_1[mask == 0] = 0
-                        Gwz_1 = Gwz_1.reshape((wpts,zpts), order='F')
-                        # Impose adding up to Gwz_1
-                        Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
-                        norm_resid = np.max(abs(Gwz_1 - Gwz0))
-                        abs_resid = np.max(abs(resid))
-                        Gwz0 = update_Gwz*Gwz_1 + (1-update_Gwz)*Gwz0
-                        abs_tol = np.max([RzTol,(minRziter - Rziter - 1)/minRziter*1e-3 + (Rziter+1)/minRziter*RzTol])
-                        norm_tol = abs_tol
-                        if abs_resid < abs_tol or norm_resid < norm_tol:
-                            break
-                    if Gwziter >= 1999:
-                        print("No Gwz converge",homotop_i, Fi, niter,wL_i,Rziter,Gwziter)
-                    [resid,Gwz_1,R1,VpRz] = Gwzdef(Gwz0.flatten('F')[mask],R0,F0,mask,r0z,r1z)
-                    Gwz_1 = Gwz_1/np.outer(np.ones(wpts),np.amax(Gwz_1,axis=0))
-                    Rdist[Rziter,0] = np.max((R0-R1)**2/R0)
-                    Rdist[Rziter,1] = np.argmax((R0-R1)**2/R0)+1
-
-                    if Rdist[Rziter,0] < RzTol:
-                        RzConverged = 1
-                        break
-
-                    if Rziter > minRziter:
-                        if np.mean(Rdist[Rziter-100:Rziter-50,0]) <= (np.mean(Rdist[Rziter-50:Rziter,0]) + 5e-4):
-                            RzConverged = 0
-                            break
-
-                    R0 = (1-update_R)*R0 + update_R*R1
-                    mask = np.outer(np.ones(wpts), R0) <= np.outer(wgrid, np.ones(zpts))
-                    mask = mask.flatten('F')
-
                     # Done with Rz iteration
 
-                # If done more than one R iteration
-                wstep_old = np.copy(wstep)
-                if nu0-nu1 > 1e-2 or gamma0-gamma1 > 1e-2:
-                    # Will have heterogeneous R
-                    wL1 = lowestw(R1)
-                else:
-                    wL1 = np.min(R1)
+                #############################################
+                # ##### THIS SECTION WAS RESETTING THE WAGE GRID. Put back if iterate on F
+                #############################################
 
-                wL = wL1*update_wL + wL*(1-update_wL)
-                wgrid = np.linspace(0,1,wpts)**wpow * (wbar-wL) + wL
-                wstep = np.zeros(len(wgrid))
-                wmid = 0.5*(wgrid[0:-1] + wgrid[1:])
-                wstep[1:-1] = wmid[1:] - wmid[0:-1]
-                wstep[0] = wmid[0]-wgrid[0]
-                wstep[-1] = wgrid[-1]-wmid[-1]
+                # If done more than one R iteration ---------
 
-                # Rescale the density
-                F0 = F0*wstep_old/wstep
-                F0 = F0/F0[wpts-1]
+                # wstep_old = np.copy(wstep)
+                # if nu0-nu1 > 1e-2 or gamma0-gamma1 > 1e-2:
+                #     # Will have heterogeneous R
+                #     wL1 = lowestw(R1)
+                # else:
+                #     wL1 = np.min(R1)
+                #
+                # wL = wL1*update_wL + wL*(1-update_wL)
+                # wgrid = np.linspace(0,1,wpts)**wpow * (wbar-wL) + wL
+                # wstep = np.zeros(len(wgrid))
+                # wmid = 0.5*(wgrid[0:-1] + wgrid[1:])
+                # wstep[1:-1] = wmid[1:] - wmid[0:-1]
+                # wstep[0] = wmid[0]-wgrid[0]
+                # wstep[-1] = wgrid[-1]-wmid[-1]
+                #
+                # # Rescale the density
+                # F0 = F0*wstep_old/wstep
+                # F0 = F0/F0[wpts-1]
 
-                if (RzConverged == 1) and (abs(wL1-wL) < wLtol):
-                    break
-                elif (abs(wL1-wL) < wLtol):
-                    print("Rz did not converge, though wL did")
-                    break
+                # if (RzConverged == 1) and (abs(wL1-wL) < wLtol):
+                #     break # break wL loop
+                # elif (abs(wL1-wL) < wLtol):
+                #     print("Rz did not converge, though wL did")
+                #     break # break wL loop
+                #############################################
 
             # Done looking for the lower bound w_L
 
@@ -720,8 +726,7 @@ for homotop_i in range(0,nstep):
             href_wz[wi,0:zused[wi]] = href_z.copy()
             r1z_wz[wi,0:zused[wi]] = r1z_z.copy()
 #            lwz[wi,0:zused[wi]] = np.trim_zeros(lwzTemp)
-           #end wi loop
-
+        #end wi loop
 
         piz_0 = Lw*(p-wgrid)
         # impose monotonicity on Lw for interior points only
@@ -763,10 +768,17 @@ for homotop_i in range(0,nstep):
         # F0 = update_F*F1 + (1-update_F)*F0
         # if (np.max(abs(difF)) < 1e-4) | (np.sqrt(var_pi)/pi_target <1e-2 ):
         #    break
+#solve wbar
         wbar_old = wbar
         pibarw = Lw[wpts - 1] * (p - wgrid[wpts - 1])
         wbar_new = p - pi_target/Lw[wpts-1]
         wbar = update_wbar * wbar_new + (1 - update_wbar) * wbar
+# solve wL
+        if nu0-nu1 > 1e-2 or gamma0-gamma1 > 1e-2:
+            # Will have heterogeneous R
+            wL1 = lowestw(R1)
+        else:
+            wL1 = np.min(R1)
 
         # eqPiwobj = lambda wg1in: sum(np.square(eqPiwgrid(wg1in, pibarw, Lw)))
         # eqPiwobj_jac = lambda wg1in: sum(np.square(eqPiwgrid(wg1in, pibarw)))
@@ -780,9 +792,19 @@ for homotop_i in range(0,nstep):
         # res_j = minimize(eqPiwobj, wgrid0, jac=eqPiwgrid_jac, method='SLSQP', bounds=bnds_wg, constraints=cons)
 
         wgrid1 = wgrid.copy()
-        for wi in range(wpts-2,1,-1):
+
+        for wi in range(wpts-1,1,-1):
             wgrid1[wi]= p - pi_target/Lw[wi]
-            wgrid[wi] = wgrid1[wi]*update_F + (1.-update_F)*wgrid[wi]
+            wgrid[wi] = wgrid1[wi]*update_wbar + (1.-update_wbar)*wgrid[wi]
+        wL = wL1*update_wbar + (1.-update_wbar)*wgrid[0]
+        if wL< wgrid[1] :
+            wgrid[0] = wL
+        else:
+            wgrid[0] = wgrid[1]-1e-6
+        #
+        # for wi in range(1,wpts-2,1):
+        #     if( wgrid[wi] >= wgrid[wi+1] ):
+        #         wgrid[wi] = 0.5*(wgrid[wi-1]+wgrid[wi+1])
 
         # wgrid = np.linspace(0, 1, wpts) ** wpow * (wbar - wL) + wL
         wstep = np.zeros(len(wgrid))
@@ -790,6 +812,10 @@ for homotop_i in range(0,nstep):
         wstep[1:-1] = wmid[1:] - wmid[:-1]
         wstep[0] = wmid[0] - wgrid[0]
         wstep[-1] = wgrid[-1] - wmid[-1]
+
+        difw = wgrid1 - wgrid
+        if (np.max(abs(difw)) < 1e-4) | (np.sqrt(var_pi)/pi_target <1e-2 ):
+           break
 
         if (var_pi >1e-7) and print_lev>1 :
             print("variance in pi is %f" % var_pi)
