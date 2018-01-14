@@ -100,7 +100,7 @@ def Gwzdef(dist,R,F,mask,r0z,r1z):
             FRz[zi] = 1
             GtRz[zi] = 1
 
-        v = (gamma0*(F - FRz[zi]) + (1-gamma0)*r0z[zi]*(Gtilde - GtRz[zi])) \
+        v = (gamma0* (F - FRz[zi]) + (1-gamma0)*r0z[zi]*(Gtilde - GtRz[zi])) \
             /(delta + gamma1*(1-F) + (1-gamma1)*r1z[zi]*(1-Gtilde)) \
             * delta/(gamma0*(1-FRz[zi]) + (1-gamma0)*r0z[zi]*(1-GtRz[zi]))
         Gwz_imp[:,zi] = v.copy()
@@ -243,6 +243,7 @@ def lowestw(R1):
 
     return(wLoffered)
 
+
 def eqPi(F1in, pi_in,hwz0,r1z_endo,zg_endo,zused,Gtilde) :
 #equalizes profit by manipulating F
     global wgrid
@@ -334,7 +335,7 @@ b = 0
 p = 1
 alpha = 2.1
 M = 0.5
-nu0 = 1.1
+nu0 = 0.5*gamma0
 nu1 = nu0*gamma1/gamma0
 delta = (gamma0 + gamma1*nu0)*0.06/(1.-0.06)
 
@@ -437,19 +438,19 @@ diryield_wz = np.zeros((wpts,zpts))
 
 # Setup homotopy steps
 
+nu1steps = np.concatenate( (np.array([0.75*nu1]), np.linspace(.05,1.,nstep-1)*nu1) )
 nu0steps = np.linspace(.05,1.,nstep)*nu0
-nu1steps = nu0steps*gamma1/gamma0
 
 
-for ni in range(0,nstep):
-    nu0_old = nu0
-    nu0 = nu0steps[ni]
-    nu1steps[ni] = fsolve(sol_nu1, nu1steps[ni])
-    nu0 = nu0_old
+# for ni in range(0,nstep):
+#     nu0_old = nu0
+#     nu0 = nu0steps[ni]
+#     nu1steps[ni] = fsolve(sol_nu1, nu1steps[ni])
+#     nu0 = nu0_old
 
 if nu0eqnu1 == 1:
     # try with nu1 = nu0
-    nu1steps = (nu0steps.copy() + nu1steps.copy())*.5
+    #nu1steps = (nu0steps.copy() + nu1steps.copy())*.5
     nu0steps = nu1steps.copy()
 
 #%%
@@ -462,6 +463,9 @@ for homotop_i in range(0,nstep):
 
     nu0 = nu0steps[homotop_i]
     nu1 = nu1steps[homotop_i]
+    r1z = rhoz1(zgrid, nz)
+    r0z = rhoz0(zgrid, nz)
+
     nonmonoval = 0
     nonmonocount = 0
     err_wbarnew = 0
@@ -483,28 +487,6 @@ for homotop_i in range(0,nstep):
             wL1 = 0
 
             for wL_i in range(0,maxwLiter):
-
-                # if wL_i > 1:
-                #     # Will have heterogeneous R
-                #     if nu0-nu1 > 1e-2 or (gamma0-gamma1 > 1e-2) :
-                #         wL1 = lowestw(R1)
-                #     else:
-                #         wL1 = np.min(R1)
-                #
-                #     wL = update_wL*wL1 + (1-update_wL)*wL
-                #
-                #     # Reconstruct wgrid
-                #     wstep_old = wstep.copy()
-                #     # Put the points in the middle of the space
-                #     wgrid = np.linspace(0,1,wpts)**wpow * (wbar-wL) + wL
-                #     wstep = np.zeros(len(wgrid))
-                #     wmid = 0.5*(wgrid[0:-1] + wgrid[1:])
-                #     wstep[1:-1] = wmid[1:] - wmid[0:-1] #wstep[1:end-1] is the Matlab-equivalent indexing
-                #     wstep[0] = wmid[0]-wgrid[0]
-                #     wstep[-1] = wgrid[-1]-wmid[-1]
-                #     # Rescale F0
-                #     F0 = F0*wstep_old/wstep
-                #     F0 = F0/F0[wpts-1]
 
                 mask = np.outer(np.ones(wpts), R0) <= np.outer(wgrid, np.ones(zpts))
                 mask = mask.flatten('F')
@@ -644,17 +626,16 @@ for homotop_i in range(0,nstep):
         # Wage distribution for everyone
         lwz[wpts-1,:] = lbarw.copy()
         indicz = np.zeros((wpts,zpts),dtype = np.int)
-        for wi in range(0,wpts):
-            indicz[wi] = R1 <= wgrid[wi]
 
         for wi in range(0,wpts-1):
+            indicz[wi] = R1 <= wgrid[wi]
             zRm1 = sum(indicz[wi])
-            if zRm1 == 0: # at least the lowest type will accept
+            if zRm1 == 0: # at least the lowest R-type will accept
                 indicz[wi, 0] = 1
             beta_z = delta + gamma1*(1-F0[wi]) + (1-gamma1)*r1z*(1-Gtilde[wi])
             hdir_z = Omegaz/M * ((1-nz)*gamma0*indicz[wi] + nz*gamma1*Gwz_1[wi])
             href_z = gamma1*Psis*((1-nz)*nu0*indicz[wi] + nz*nu1*Gwz_1[wi])
-            r1z_z  = r1z
+            r1z_z  = r1z.copy()
             # solve the edge, where R1(z)<wgrid(wi)
             if zRm1 <= (zpts-1):
                 beta_z[indicz[wi]==0] = 0.
@@ -731,13 +712,13 @@ for homotop_i in range(0,nstep):
                     print("Labor force flag is ",flag," at wi=", wi)
 
             diryield_wz[wi,0:zused[wi]] = hdir_z.copy()
-            refyield_wz[wi,0:zused[wi]] = href_z*np.trapz(lwz[wi,0:zused[wi]],zg_endo, axis=0)
+            refyield_wz[wi,0:zused[wi]] = href_z.copy()*np.trapz(lwz[wi,0:zused[wi]],zg_endo, axis=0)
 
 
-            zgrid_wz[wi,0:zused[wi]] = zg_endo
-            hdir_wz[wi,0:zused[wi]] = hdir_z
-            href_wz[wi,0:zused[wi]] = href_z
-            r1z_wz[wi,0:zused[wi]] = r1z_z
+            zgrid_wz[wi,0:zused[wi]] = zg_endo.copy()
+            hdir_wz[wi,0:zused[wi]] = hdir_z.copy()
+            href_wz[wi,0:zused[wi]] = href_z.copy()
+            r1z_wz[wi,0:zused[wi]] = r1z_z.copy()
 #            lwz[wi,0:zused[wi]] = np.trim_zeros(lwzTemp)
            #end wi loop
 
@@ -756,40 +737,54 @@ for homotop_i in range(0,nstep):
         var_pi = sum(np.square(piz_0 - Epiz_0)) / wpts
 
         pibarw = Lw[wpts-1]*(p - wgrid[wpts-1])
-        pi_target = Epiz_0
-
-        # Now solve for F1 over all wi
-        F1 = np.zeros(wpts)
+        pi_target = minpiz_0
 
         #use hdir_wz, href_wz, zg_endo, r1z_endo from above
         h_wz = np.zeros((wpts,zpts))
         for wi in range(1,wpts-1):
             zR1 = zused[wi]
             h_wz[wi,0:zR1] = hdir_wz[wi,0:zR1] + lwz[wi,0:zR1]*href_wz[wi,0:zR1]
-                                                       
-        eqPiobj = lambda F1in: sum(np.square(eqPi(F1in, pi_target, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
-        eqPiobj_J = lambda F1in: 2*eqPi(F1in, pi_target, h_wz,r1z_wz,zgrid_wz,zused,Gtilde) * eqPi_jac(F1in,minpiz_0, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
-        bnds = np.zeros((wpts,2))
-        bnds[:,1] = 1.
-        bnds[wpts-1,0] = 1.
-        cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1] })
 
-        res_j = minimize(eqPiobj, F0, jac= eqPiobj_J,method='SLSQP', bounds=bnds, constraints = cons)
+        # Now solve for F1 over all wi
+        # F1 = np.zeros(wpts)
 
-        F1 = res_j.x
-
-        difF = (F1-F0)
-
-        if (np.max(abs(difF)) < 1e-4) | (np.sqrt(var_pi)/pi_target <1e-2 ):
-            break
-        F0 = update_F*F1 + (1-update_F)*F0
+        # eqPiobj = lambda F1in: sum(np.square(eqPi(F1in, pibarw, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)))
+        # eqPiobj_J = lambda F1in: 2*eqPi(F1in, pibarw, h_wz,r1z_wz,zgrid_wz,zused,Gtilde) * eqPi_jac(F1in,pibarw, h_wz,r1z_wz,zgrid_wz,zused,Gtilde)
+        # bnds = np.zeros((wpts,2))
+        # bnds[:,1] = 1.
+        # bnds[wpts-1,0] = 1.
+        # cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1] })
+        #
+        # res_j = minimize(eqPiobj, F0, jac= eqPiobj_J,method='SLSQP', bounds=bnds, constraints = cons)
+        #
+        # F1 = res_j.x
+        #
+        # difF = (F1-F0)
+        # F0 = update_F*F1 + (1-update_F)*F0
+        # if (np.max(abs(difF)) < 1e-4) | (np.sqrt(var_pi)/pi_target <1e-2 ):
+        #    break
         wbar_old = wbar
         pibarw = Lw[wpts - 1] * (p - wgrid[wpts - 1])
-        wbar_new = -(pi_target/Lw[wpts-1] - p)
+        wbar_new = p - pi_target/Lw[wpts-1]
         wbar = update_wbar * wbar_new + (1 - update_wbar) * wbar
-        wstep_old = wstep.copy()
 
-        wgrid = np.linspace(0, 1, wpts) ** wpow * (wbar - wL) + wL
+        # eqPiwobj = lambda wg1in: sum(np.square(eqPiwgrid(wg1in, pibarw, Lw)))
+        # eqPiwobj_jac = lambda wg1in: sum(np.square(eqPiwgrid(wg1in, pibarw)))
+        #
+        # bnds_wg = np.ones((wpts, 2))
+        # bnds_wg[:, 0] = wL
+        # bnds_wg[:, 1] = wbar
+        # bnds_wg[wpts - 1, 0] = wbar
+        # bnds_wg[0, 1] = wL
+        # cons = ({'type': 'ineq', 'fun': lambda x: x[1:] - x[:-1]})
+        # res_j = minimize(eqPiwobj, wgrid0, jac=eqPiwgrid_jac, method='SLSQP', bounds=bnds_wg, constraints=cons)
+
+        wgrid1 = wgrid.copy()
+        for wi in range(wpts-2,1,-1):
+            wgrid1[wi]= p - pi_target/Lw[wi]
+            wgrid[wi] = wgrid1[wi]*update_F + (1.-update_F)*wgrid[wi]
+
+        # wgrid = np.linspace(0, 1, wpts) ** wpow * (wbar - wL) + wL
         wstep = np.zeros(len(wgrid))
         wmid = 0.5 * (wgrid[:-1] + wgrid[1:])
         wstep[1:-1] = wmid[1:] - wmid[:-1]
@@ -810,16 +805,16 @@ for homotop_i in range(0,nstep):
     totemp = np.trapz(np.trapz(lwz,wgrid,axis=0),zgrid, axis=0)
 
     # Vacancies filled by referral
-    refyield = np.trapz(np.trapz(refyield_wz[1:]*lwz[1:],wgrid[1:], axis=0),zgrid,axis=0)
+    refyield = np.trapz(np.trapz(refyield_wz*lwz,wgrid, axis=0),zgrid,axis=0)
     # Vacancies fill by direct contact
-    diryield = np.trapz(np.trapz(diryield_wz[1:]*lwz[1:],wgrid[1:], axis=0),zgrid,axis=0)
+    diryield = np.trapz(np.trapz(diryield_wz*lwz,wgrid, axis=0),zgrid,axis=0)
     # Unempoyed worker's finding rate
     UEfrt = np.trapz(Omegaz*(1-nz)*(gamma0 + (1-gamma0)*r0z),zgrid,axis=0)/np.trapz(Omegaz*(1-nz),zgrid,axis=0)
     # Employed worker's finding rate
     EEfrt = np.trapz(Omegaz*nz*(gamma1 + (1-gamma1)*r1z),zgrid,axis=0)/np.trapz(Omegaz*nz,zgrid,axis=0)
     # Employed worker's endogenous separation rate. fix this
     EEmrt = (1-gamma1)*np.trapz( Omegaz*nz*r1z*np.trapz(lwz*np.outer(1-Gtilde,np.ones(zpts)),wgrid,axis=0), zgrid, axis=0) + \
-            gamma1*np.trapz(Omegaz*nz*np.trapz(lwz*np.outer(1-F1,np.ones(zpts)),wgrid, axis=0),zgrid,axis=0)/n1/np.trapz(np.trapz(lwz,wgrid, axis=0),zgrid, axis=0)
+            gamma1*np.trapz(Omegaz*nz*np.trapz(lwz*np.outer(1-F0,np.ones(zpts)),wgrid, axis=0),zgrid,axis=0)/n1/np.trapz(np.trapz(lwz,wgrid, axis=0),zgrid, axis=0)
 
     print("-------------------------")
     print("nu0= %f" % nu0)
