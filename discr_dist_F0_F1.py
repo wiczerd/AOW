@@ -266,7 +266,8 @@ maxFiter = 200
 UEtarget = 0.249 #FALLICK & FLEISCHMAN Numbers (as of 2017:10)
 EEtarget = 0.021
 Utarget  = 0.055
-
+NetfndTarget = 0.234
+netfrtdirfrtTarget = 0.29
 b = 0
 p = 1
 alpha = 2.1
@@ -377,7 +378,7 @@ def setOmega(alphain):
     meanz = np.inner(zstep,(Omegaz*zgrid) )
     return(Omegaz)
 
-def solEcon(nu0in,nu1in,alphain):
+def solEcon(nu0in,nu1in,alphain,cal_flag=False):
 
     global gamma1
     global gamma0
@@ -710,8 +711,8 @@ def solEcon(nu0in,nu1in,alphain):
     fw = np.zeros(wpts)
     gw = np.zeros(wpts)
     gwz= np.zeros((wpts,zpts))
-
     gtilde = np.zeros(wpts)
+
     wi = 0
     fw[wi] = (Fw[wi + 1] - Fw[wi]) / (wgrid[wi + 1] - wgrid[wi])
     gtilde[wi] = (Gtilde[wi + 1] - Gtilde[wi]) / (wgrid[wi + 1] - wgrid[wi])
@@ -756,6 +757,12 @@ def solEcon(nu0in,nu1in,alphain):
     EEmrt = (1-gamma1)*np.trapz( Omegaz*nz*r1z*np.trapz(lwz*np.outer(1-Gtilde,np.ones(zpts)),wgrid,axis=0), zgrid, axis=0) + \
             gamma1*np.trapz(Omegaz*nz*np.trapz(lwz*np.outer(1-Fw,np.ones(zpts)),wgrid, axis=0),zgrid,axis=0)/n1/np.trapz(np.trapz(lwz,wgrid, axis=0),zgrid, axis=0)
 
+    # Probability of found by network/Probability of found by direct at each wage
+    netfrtdirfrt_w = np.trapz( np.tile(Omegaz*nz,(wpts,1))* \
+        np.outer((1-Gtilde)*(1-gamma1),r1z) / ( np.outer((1-Gtilde)*(1-gamma1),r1z)+np.tile((1-Fw)*gamma1,(zpts,1)).T ),zgrid,axis=1 )
+
+    netfrtdirfrt   = np.trapz( (netfrtdirfrt_w[1:-1]- netfrtdirfrt_w[:-2])/(Gw[1:-1]-Gw[:-2]) * gw[:-2]/np.trapz(gw[:-2],Gw[:-2]), Gw[:-2])
+
     if( print_lev>=2):
         print("-------------------------")
         print("nu0= %f" % nu0)
@@ -763,21 +770,32 @@ def solEcon(nu0in,nu1in,alphain):
         print("UE finding rate: %f" % UEfrt)
         print("EE finding rate: %f" % EEfrt)
         print("-------------------------")
-
-    return(Rz,wgrid, Fw,Gtilde, Gwz0,Psis,nz,lwz,Lw)
+    errvec = np.zeros(3)
+    errvec[0] = (refyield/(diryield + refyield) - NetfndTarget)/NetfndTarget
+    errvec[1] = (EEfrt - EEtarget)/EEtarget
+    errvec[2] = (netfrtdirfrt - netfrtdirfrtTarget)/netfrtdirfrtTarget
+    if( cal_flag == True):
+        return(errvec)
+    else:
+        return(errvec,Rz,wgrid, Fw,Gtilde, Gwz0,Psis,nz,lwz,Lw)
     # end SolEcon() ----------------------------------------------------
 #-----------------------------------------------------------------------
 #-----------------------------------------------------------------------
 
 Omegaz = setOmega(alpha)
-for ni in range(0,10):
-    print_lev = 2
-    nu1 = 0.01 + ni*0.01
-    [Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(nu1, nu1,alpha)
+# for ni in range(0,10):
+#     print_lev = 2
+#     nu1 = 0.01 + ni*0.01
+#     [errvec,Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(nu1, nu1,alpha)
+print_lev = 0
+solEcon_obj = lambda xin: solEcon(xin[0], xin[0],xin[1],True)
 
 
 
-
+nu0 = xout[0]
+nu1 = xout[0]
+alpha = xout[1]
+[errvec,Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(nu1, nu1,alpha)
 # Implied offer distribution and measurs of wage growth
 FG = np.zeros(wpts)
 FGz = np.zeros((wpts,zpts))
