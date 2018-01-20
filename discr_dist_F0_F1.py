@@ -17,7 +17,7 @@ from scipy.optimize import fsolve, minimize
 from scipy.interpolate import pchip
 from scipy.interpolate import interp1d
 from scipy.integrate import cumtrapz
-
+import dfogn
 
 
 ########## Solving Networks & Search
@@ -267,18 +267,18 @@ UEtarget = 0.249 #FALLICK & FLEISCHMAN Numbers (as of 2017:10)
 EEtarget = 0.021
 Utarget  = 0.055
 NetfndTarget = 0.234
-netfrtdirfrtTarget = 0.29
+netfrtdirfrtTarget = 0.23
 b = 0
 p = 1
-alpha = 2.1
+alpha = 2.5
 M = 0.5
 delta = UEtarget*Utarget/(1.-Utarget)
 
 #some variables that'll be over-written
 gamma0 = UEtarget
-gamma1 = 0.25*gamma0
+gamma1 = EEtarget
 nu0 = 0.5*gamma0
-nu1 = nu0*gamma1/gamma0
+nu1 = .25
 
 
 if (gamma0 - gamma1 < 1e-2 and nu0 - nu1 < 1e-2):
@@ -378,10 +378,9 @@ def setOmega(alphain):
     meanz = np.inner(zstep,(Omegaz*zgrid) )
     return(Omegaz)
 
-def solEcon(nu0in,nu1in,alphain,cal_flag=False):
+def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
 
-    global gamma1
-    global gamma0
+
     global delta
     global b
     global zgrid
@@ -390,6 +389,8 @@ def solEcon(nu0in,nu1in,alphain,cal_flag=False):
 
     nu0 = nu0in
     nu1 = nu1in
+    gamma1 = gamma1in
+    gamma0 = gamma0in
 
     Omegaz = setOmega(alphain)
     Psis   = Omegaz.copy() #just to initialize
@@ -758,10 +759,10 @@ def solEcon(nu0in,nu1in,alphain,cal_flag=False):
             gamma1*np.trapz(Omegaz*nz*np.trapz(lwz*np.outer(1-Fw,np.ones(zpts)),wgrid, axis=0),zgrid,axis=0)/n1/np.trapz(np.trapz(lwz,wgrid, axis=0),zgrid, axis=0)
 
     # Probability of found by network/Probability of found by direct at each wage
-    netfrtdirfrt_w = np.trapz( np.tile(Omegaz*nz,(wpts,1))* \
-        np.outer((1-Gtilde)*(1-gamma1),r1z) / ( np.outer((1-Gtilde)*(1-gamma1),r1z)+np.tile((1-Fw)*gamma1,(zpts,1)).T ),zgrid,axis=1 )
+    netfrtdirfrt_w = np.trapz( np.tile(Omegaz*nz,(wpts-1,1))* \
+        np.outer((1-Gtilde[:-1])*(1-gamma1),r1z) / ( np.outer((1-Gtilde[:-1])*(1-gamma1),r1z)+np.tile((1-Fw[:-1])*gamma1,(zpts,1)).T ),zgrid,axis=1 )
 
-    netfrtdirfrt   = np.trapz( (netfrtdirfrt_w[1:-1]- netfrtdirfrt_w[:-2])/(Gw[1:-1]-Gw[:-2]) * gw[:-2]/np.trapz(gw[:-2],Gw[:-2]), Gw[:-2])
+    netfrtdirfrt   = np.mean( (netfrtdirfrt_w[1:]- netfrtdirfrt_w[:-1])/(Gw[1:-1]-Gw[:-2])  ) #np.trapz( (netfrtdirfrt_w[1:]- netfrtdirfrt_w[:-1])/(Gw[1:-1]-Gw[:-2]) * gw[:-2]/np.trapz(gw[:-2],Gw[:-2]), Gw[:-2])
 
     if( print_lev>=2):
         print("-------------------------")
@@ -770,10 +771,16 @@ def solEcon(nu0in,nu1in,alphain,cal_flag=False):
         print("UE finding rate: %f" % UEfrt)
         print("EE finding rate: %f" % EEfrt)
         print("-------------------------")
-    errvec = np.zeros(3)
+    errvec = np.zeros(4)
     errvec[0] = (refyield/(diryield + refyield) - NetfndTarget)/NetfndTarget
     errvec[1] = (EEfrt - EEtarget)/EEtarget
-    errvec[2] = (netfrtdirfrt - netfrtdirfrtTarget)/netfrtdirfrtTarget
+    errvec[2] = (UEfrt - UEtarget) / UEtarget
+    errvec[3] = (netfrtdirfrt - netfrtdirfrtTarget)/netfrtdirfrtTarget
+
+    if(print_lev>0):
+        print ("gamma0: %f, gamma1: %f, nu1: %f, alpha: %f" ,  (gamma0,gamma1,nu1,alpha))
+        print ("refyield: %f, EEfrt: %f, UEfrt: %f, net_dir frt: %f" % errvec)
+
     if( cal_flag == True):
         return(errvec)
     else:
@@ -787,15 +794,20 @@ Omegaz = setOmega(alpha)
 #     print_lev = 2
 #     nu1 = 0.01 + ni*0.01
 #     [errvec,Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(nu1, nu1,alpha)
-print_lev = 0
-solEcon_obj = lambda xin: solEcon(xin[0], xin[0],xin[1],True)
+print_lev = 1
+solEcon_obj = lambda xin: solEcon(xin[0],xin[1], xin[2], xin[2],xin[3],True)
+xin =  np.array([gamma0,gamma1,nu1,alpha])
+constr_lb =  np.array([0.0, 0.0, 0.0, 2.])
+constr_ub =  np.array([0.7, 0.4, 1.0, 3.48])
+soln = dfogn.solve(solEcon_obj, xin, lower=constr_lb, upper=constr_ub, maxfun=1000,
+            rhobeg=np.min(constr_ub-constr_lb)/2.1, rhoend=1e-8)
 
-
-
-nu0 = xout[0]
-nu1 = xout[0]
-alpha = xout[1]
-[errvec,Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(nu1, nu1,alpha)
+gamma0 = soln.x[0]
+gamma1 = soln.x[1]
+nu0    = soln.x[2]
+nu1    = soln.x[2]
+alpha  = soln.x[3]
+[errvec,Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(gamma0,gamma1,nu1, nu1,alpha)
 # Implied offer distribution and measurs of wage growth
 FG = np.zeros(wpts)
 FGz = np.zeros((wpts,zpts))
