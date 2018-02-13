@@ -23,6 +23,76 @@ from mpi4py import MPI
 ########## Solving Networks & Search
 
 
+print_lev = 1
+calibrate_flag = False #run calibration or not?
+
+nu0eqnu1 = 1
+
+update_Gwz = 0.1
+update_R = 0.05
+update_wbar = 0.5
+update_n = 0.1
+update_wL = 0.1
+update_F = 0.5
+nstep =20
+th_update = 5
+wLtol = 1e-5
+ntol=1e-6
+RzTol=1e-6
+RzConverged = 0
+
+maxRziter = 2000
+minRziter = 500
+maxwbariter = 50
+maxwLiter = 50
+maxniter = 20
+maxFiter = 200
+
+UEtarget = 0.249 #FALLICK & FLEISCHMAN Numbers (as of 2017:10)
+EEtarget = 0.021
+Utarget  = 0.055
+NetfndTarget = 0.234
+netfrtdirfrtTarget = 0.23
+b = 0
+p = 1
+alpha = 2.5
+M = 0.5
+delta = UEtarget*Utarget/(1.-Utarget)
+
+#some variables that'll be over-written
+gamma0 = UEtarget
+gamma1 = EEtarget
+nu0 = 0.5*gamma0
+nu1 = .25
+
+
+if (gamma0 - gamma1 < 1e-2 and nu0 - nu1 < 1e-2):
+    maxRziter = 1
+    minRziter = 1
+
+z0 = 1
+zZ = ((0.99*(1-alpha)/(alpha-1)+z0 )*z0**(-alpha))**(1/(1-alpha))
+
+zpts = 30
+wpts = 50
+
+zpow = 1.5
+wpow = 1.0 #this ends up getting more scrunched at the top when I solve for things
+
+# Set unevenly spaced grid points
+zgrid = np.linspace(0,1,zpts+1)**zpow * (zZ-z0) + z0
+zgrid = .5*(zgrid[1:] + zgrid[0:-1])
+zgrid[0] = z0
+zgrid[zpts-1] = zZ
+
+zstep = np.linspace(0,1,zpts+1)**zpow * (zZ-z0) + z0
+zstep = zstep[1:] - zstep[:-1]
+
+
+gamma0 = UEtarget
+gamma1 = 0.25*gamma0
+
+
 #wrapper for np.interp to enforce positive monotonicity (crudely)
 def np_interp_mono(x,xp,fp):
 
@@ -207,106 +277,19 @@ def lowestw(Rz,Omegaz):
 
     return(wLoffered)
 
+def dist2dens(Fin,gridin):
+    npts = Fin.size
+    fout = np.zeros(npts)
 
-def eqPi(F1in, pi_in,hwz0,r1z_endo,zg_endo,zused,Gtilde) :
-#equalizes profit by manipulating F
-    global wgrid
-    global wpts
-    global zpts
-    global zgrid
-    global p
-
-    F1_resid = np.zeros(wpts)
-    for wi in range(wpts-2,0,-1):
-        F1_resid[wi] = pi_in/(p - wgrid[wi]) \
-            - np.trapz(hwz0[wi,0:zused[wi]]/(delta + gamma1*(1-F1in[wi]) + (1-gamma1)*r1z_endo[wi,0:zused[wi]]*(1-Gtilde[wi])), zg_endo[wi,0:zused[wi]], axis=0)
-
-    return(F1_resid)
-
-def eqPi_jac(F1in, pi_in,hwz0,r1z_endo,zg_endo,zused,Gtilde) :
-    #jacobian for eqPi condition solving for F1in
-    global wgrid
-    global wpts
-    global zpts
-    global zgrid
-    global p
-
-    F1_resid_jac = np.zeros(wpts)
-    for wi in range(wpts-2,0,-1):
-        F1_resid_jac[wi] = -gamma1*np.trapz(hwz0[wi,0:zused[wi]]/np.square(delta + gamma1*(1-F1in[wi]) + (1-gamma1)*r1z_endo[wi,0:zused[wi]]*(1-Gtilde[wi])), zg_endo[wi,0:zused[wi]], axis=0)
-
-    return(F1_resid_jac)
-
-##### Solving networks and search
-
-print_lev = 1
-
-nu0eqnu1 = 1
-
-update_Gwz = 0.1
-update_R = 0.05
-update_wbar = 0.5
-update_n = 0.1
-update_wL = 0.1
-update_F = 0.5
-nstep =20
-th_update = 5
-wLtol = 1e-5
-ntol=1e-6
-RzTol=1e-6
-RzConverged = 0
-
-maxRziter = 2000
-minRziter = 500
-maxwbariter = 50
-maxwLiter = 50
-maxniter = 20
-maxFiter = 200
-
-UEtarget = 0.249 #FALLICK & FLEISCHMAN Numbers (as of 2017:10)
-EEtarget = 0.021
-Utarget  = 0.055
-NetfndTarget = 0.234
-netfrtdirfrtTarget = 0.23
-b = 0
-p = 1
-alpha = 2.5
-M = 0.5
-delta = UEtarget*Utarget/(1.-Utarget)
-
-#some variables that'll be over-written
-gamma0 = UEtarget
-gamma1 = EEtarget
-nu0 = 0.5*gamma0
-nu1 = .25
-
-
-if (gamma0 - gamma1 < 1e-2 and nu0 - nu1 < 1e-2):
-    maxRziter = 1
-    minRziter = 1
-
-z0 = 1
-zZ = ((0.99*(1-alpha)/(alpha-1)+z0 )*z0**(-alpha))**(1/(1-alpha))
-
-zpts = 30
-wpts = 50
-
-zpow = 1.5
-wpow = 1.0 #this ends up getting more scrunched at the top when I solve for things
-
-# Set unevenly spaced grid points
-zgrid = np.linspace(0,1,zpts+1)**zpow * (zZ-z0) + z0
-zgrid = .5*(zgrid[1:] + zgrid[0:-1])
-zgrid[0] = z0
-zgrid[zpts-1] = zZ
-
-zstep = np.linspace(0,1,zpts+1)**zpow * (zZ-z0) + z0
-zstep = zstep[1:] - zstep[:-1]
-
-
-gamma0 = UEtarget
-gamma1 = 0.25*gamma0
-
+    wi = 0
+    fout[wi] = (Fin[wi + 1] - Fin[wi]) / (gridin[wi + 1] - gridin[wi])
+    for wi in range(1, npts - 1):
+        fout[wi] = (Fin[wi + 1] - Fin[wi - 1]) / (gridin[wi + 1] - gridin[wi - 1])
+    wi = wpts - 1
+    fout[wi] = (Fin[wi] - Fin[wi - 1]) / (gridin[wi] - gridin[wi - 1])
+    fsum = np.trapz(fout, gridin)
+    fout = fout / fsum
+    return(fout)
 
 def initBM(UErt, EErt):
     global gamma1
@@ -363,7 +346,7 @@ def initBM(UErt, EErt):
 
     R = np.ones(zpts) * wLBM
 
-    return(n,FBM,R,wgridBM,gamma0BM,gamma1BM)
+    return( GwBM,R,wgridBM,gamma0BM,gamma1BM)
 
 
 def setOmega(alphain):
@@ -446,8 +429,6 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
         print ("gamma0:   %6.6f, gamma1: %6.6f, nu1:   %6.6f, alpha:       %6.6f" % (gamma0in, gamma1in, nu1in, alphain))
 
     for Fi in range(0, maxFiter):
-
-        nonmonolwz = 0
 
         # Iterate on n, but it doesn't really matter what is the original guess
         for niter in range(0,maxniter):
@@ -617,7 +598,9 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
                     lwzTemp, infodict, flag, mesg = fsolve(lwz_resid, Omegaz_endo/M, full_output=True)
                     zused[wi] = len(beta_z)
                     if flag != 1:
-                        print("Labor force flag is %d at wi=%d length is %d" % (flag, wi, zused[wi]))
+                        if(print_lev>0):
+                            print("Labor force flag is %d at wi=%d length is %d" % (flag, wi, zused[wi]))
+                        #lwzTemp = Omegaz_endo * 0.
                     lwz[wi,0:zused[wi]] = lwzTemp.copy()
                     if zRm1>1:
                         Lw[wi] = np.trapz(lwz[wi,0:zused[wi]],zg_endo)
@@ -632,7 +615,9 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
                     lwz_resid = lambda lwzH: lwzH * beta_z - hdir_z - lwzH * href_z
                     lwzTemp, infodict, flag, mesg = fsolve(lwz_resid, Omegaz_endo / M, full_output=True)
                     if flag != 1:
-                        print("Labor force flag is %d at wi=%d length is %d" % (flag, wi, 1))
+                        if(print_lev>0):
+                            print("Labor force flag is %d at wi=%d length is %d" % (flag, wi, 1))
+                        #lwzTemp = Omegaz_endo*0.
                     lwz[wi, 0:zused[wi]] = lwzTemp.copy()
                     Lw[wi] = lwz[wi, 0]
             else: # zRm1 =zpts
@@ -656,16 +641,10 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
     #            lwz[wi,0:zused[wi]] = np.trim_zeros(lwzTemp)
 
         piz_0 = Lw*(p-wgrid)
-        # impose monotonicity on Lw for interior points only
-        for wi in range(2,wpts-1):
-            if Lw[wi] < Lw[wi-1]:
-                nonmonolwz = nonmonolwz+1
-                Lw[wi] = np.max([Lw[wi] , Lw[wi-1]])
 
         # match wbar to minimum profit in interior points of wage distribution
         Epiz_0 = np.trapz(piz_0[1:wpts-1], wgrid[1:wpts-1])/(wgrid[wpts-2]-wgrid[1])
         minpiz_0 = np.min(piz_0[1:wpts-1])
-        refzi = np.argmin(piz_0[1:wpts-1])
         var_pi = sum(np.square(piz_0 - Epiz_0)) / wpts
 
         pibarw = Lw[wpts-1]*(p - wgrid[wpts-1])
@@ -678,7 +657,6 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
             h_wz[wi,0:zR1] = hdir_wz[wi,0:zR1] + lwz[wi,0:zR1]*href_wz[wi,0:zR1]
 
     #solve wbar
-        wbar_old = wbar
         pibarw = Lw[wpts - 1] * (p - wgrid[wpts - 1])
         wbar_new = p - pi_target/Lw[wpts-1]
         wbar = update_wbar * wbar_new + (1 - update_wbar) * wbar
@@ -716,43 +694,18 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
         if print_lev >2 or wbar<.8 :
             print("wbar is %f compared to BM %f" % (wbar_new, p-(1-(gamma1/(delta+gamma1)))**2*(p-wL)) )
             print("profit is %f" % minpiz_0)
-            print("max difF is %f" % np.max(abs(difw)))
-            print("residual value %f" % res_j.fun)
             print("-------------------------")
 
     #   compute some stats with it.
     #------------------------------------------------------------
 
-    #distribution functions (from the densities)
-    fw = np.zeros(wpts)
-    gw = np.zeros(wpts)
+    #densities (from the distributions)
+    fw = dist2dens(Fw,wgrid)
+    gw = dist2dens(Gw,wgrid)
+    gtilde = dist2dens(Gtilde,wgrid)
     gwz= np.zeros((wpts,zpts))
-    gtilde = np.zeros(wpts)
-
-    wi = 0
-    fw[wi] = (Fw[wi + 1] - Fw[wi]) / (wgrid[wi + 1] - wgrid[wi])
-    gtilde[wi] = (Gtilde[wi + 1] - Gtilde[wi]) / (wgrid[wi + 1] - wgrid[wi])
-    gw[wi] = (Gw[wi + 1] - Gw[wi]) / (wgrid[wi + 1] - wgrid[wi])
-    for zi in range(0,zpts-1):
-        gwz[wi,zi] = (Gwz0[wi + 1,zi] - Gwz0[wi,zi]) / (wgrid[wi + 1] - wgrid[wi])
-    for wi in range(1, wpts - 1):
-        fw[wi] = (Fw[wi + 1] - Fw[wi - 1]) / (wgrid[wi + 1] - wgrid[wi - 1])
-        gtilde[wi] = (Gtilde[wi + 1] - Gtilde[wi - 1]) / (wgrid[wi + 1] - wgrid[wi - 1])
-        gw[wi] = (Gw[wi + 1] - Gw[wi-1]) / (wgrid[wi + 1] - wgrid[wi-1])
-        for zi in range(0,zpts-1):
-            gwz[wi,zi] = (Gwz0[wi + 1,zi] - Gwz0[wi-1,zi]) / (wgrid[wi + 1] - wgrid[wi-1])
-    wi = wpts - 1
-    fw[wi] = (Fw[wi] - Fw[wi - 1]) / (wgrid[wi] - wgrid[wi - 1])
-    gtilde[wi] = (Gtilde[wi] - Gtilde[wi - 2]) / (wgrid[wi] - wgrid[wi - 1])
-    gw[wi] = (Gw[wi] - Gw[wi-1]) / (wgrid[wi] - wgrid[wi - 1])
-    for zi in range(0, zpts - 1):
-        gwz[wi, zi] = (Gwz0[wi,zi] - Gwz0[wi - 1,zi]) / (wgrid[wi] - wgrid[wi - 1])
-    fsum = np.trapz(fw, wgrid)
-    gtsum = np.trapz(gtilde, wgrid)
-    gsum = np.trapz(gw, wgrid)
-    gw = gw / gsum
-    fw = fw / fsum
-    gtilde = gtilde / gtsum
+    for zi in range(0,zpts):
+        gwz[:,zi] =dist2dens(Gwz0[:,zi],wgrid)
 
     # Vacancies filled by referral
     refyield = np.trapz(np.trapz(refyield_wz*lwz,zgrid, axis=1)/Lw*Fw,wgrid,axis=0)
@@ -810,119 +763,186 @@ Omegaz = setOmega(alpha)
 #     nu1 = 0.01 + ni*0.01
 #     [errvec,Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(nu1, nu1,alpha)
 print_lev = 1
-comm = MPI.COMM_WORLD
-Nnode = comm.Get_size()
-Nx = 4
-Nstartpernode = 3*Nx
-rankhr = comm.Get_rank()
-constr_lb =  np.array([1.e-3, 1.e-3, 1.e-3, 2.])
-constr_ub =  np.array([0.7  , 0.4  , 1.0  , 3.48])
 
-solEcon_obj = lambda xin: solEcon(xin[0]*(constr_ub[0]-constr_lb[0])+constr_lb[0],
-                                  xin[1]*(constr_ub[1]-constr_lb[1])+constr_lb[1],
-                                  xin[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2],
-                                  xin[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2],
-                                  xin[3]*(constr_ub[3]-constr_lb[3])+constr_lb[3],True)
-xin_arr  = np.zeros((Nstartpernode*Nnode,Nx))
-solx_arr = np.zeros(Nstartpernode*Nnode*Nx)
-solf_arr = np.zeros(Nstartpernode*Nnode)
+if calibrate_flag == True:
 
-solx_arrhr = np.zeros(Nstartpernode*Nx)
-solf_arrhr = np.zeros(Nstartpernode)
+    print_lev = 0
+    comm = MPI.COMM_WORLD
+    Nnode = comm.Get_size()
+    Nx = 4
+    Nstartpernode = Nx
+    fopthist = open("fopthist.txt","w")
+    fopthist.write("opt f, ")
+    for i in range(0, Nx - 1):
+        fopthist.write("opt x %d, " % i)
+    fopthist.write("opt x %d \n" % (Nx-1))
+    fopthist.close()
+    rankhr = comm.Get_rank()
+    constr_lb =  np.array([1.e-3, 1.e-3, 1.e-3, 2.])
+    constr_ub =  np.array([0.7  , 0.4  , 1.0  , 5.])
 
-for xi in range(0,Nstartpernode*Nnode):
-    for vi in range(0,Nx):
-        xin_arr[xi,vi] = np.random.uniform(0.,1.)
-for si in range(0,Nstartpernode):
-    xin =  (np.array([gamma0,gamma1,nu1,alpha])-constr_lb)/(constr_ub-constr_lb)
-    soln = dfogn.solve(solEcon_obj, xin_arr[rankhr*Nstartpernode+si], lower=np.zeros(4), upper=np.ones(4), maxfun=1000,
-                rhobeg=.1, rhoend=1e-8)
-    solf_arrhr[si] = soln.f
-    solx_arrhr[si*Nx:(si+1)*Nx] = soln.x
+    solEcon_obj = lambda xin: solEcon(xin[0]*(constr_ub[0]-constr_lb[0])+constr_lb[0],
+                                      xin[1]*(constr_ub[1]-constr_lb[1])+constr_lb[1],
+                                      xin[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2],
+                                      xin[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2],
+                                      xin[3]*(constr_ub[3]-constr_lb[3])+constr_lb[3],True)
+    xin_arr  = np.zeros((Nstartpernode*Nnode,Nx))
+    solx_arr = np.zeros(Nstartpernode*Nnode*Nx)
+    solf_arr = np.zeros(Nstartpernode*Nnode)
 
-comm.Gather(solf_arrhr,solf_arr)
-comm.Gather(solx_arrhr,solx_arr)
-if rankhr==0:
-    print solf_arr
-    print solx_arr
+    solx_arrhr = np.zeros(Nstartpernode*Nx)
+    solf_arrhr = np.zeros(Nstartpernode)
+
+    for xi in range(0,Nstartpernode*Nnode):
+        for vi in range(0,Nx):
+            xin_arr[xi,vi] = np.random.uniform(0.,1.)
+    for si in range(0,Nstartpernode):
+        xin =  (np.array([gamma0,gamma1,nu1,alpha])-constr_lb)/(constr_ub-constr_lb)
+        soln = dfogn.solve(solEcon_obj, xin_arr[rankhr*Nstartpernode+si], lower=np.zeros(Nx), upper=np.ones(Nx), maxfun=1000,
+                   rhobeg=.1, rhoend=1e-8)
+        solf_arrhr[si] = soln.f
+        solx_arrhr[si*Nx:(si+1)*Nx] = soln.x
+        fopthist = open("fopthist.txt", "a+")
+        fopthist.write("%f, " % soln.f)
+        for i in range(0, Nx - 1):
+            fopthist.write("%f, " % soln.x[i])
+        fopthist.write("%f \n" % soln.x[Nx - 1])
+        fopthist.close()
 
 
-#
-# print_lev = 2
-# gamma0 = soln.x[0]*(constr_ub[0]-constr_lb[0])+constr_lb[0]
-# gamma1 = soln.x[1]*(constr_ub[1]-constr_lb[1])+constr_lb[1]
-# nu0    = soln.x[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2]
-# nu1    = soln.x[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2]
-# alpha  = soln.x[3]*(constr_ub[3]-constr_lb[3])+constr_lb[3]
-# [errvec,Rz,wgrid,Fw,Gtilde,Gwz,Psis,nz,lwz,Lw] = solEcon(gamma0,gamma1,nu1, nu1,alpha)
-# # Implied offer distribution and measurs of wage growth
-# FG = np.zeros(wpts)
-# FGz = np.zeros((wpts,zpts))
-#
-# for wi in range(1, wpts):
-#     FG[wi] = np.trapz(Omegaz*((Fw[wi]*gamma0 + (1-gamma0)*r0z*Gtilde[wi])*(1-nz) + (gamma1*Fw[wi] + (1-gamma1)*r1z*Gtilde[wi])*nz), zgrid)
-#     FGz[wi,:] = (Fw[wi]*gamma0 + (1-gamma0)*r0z*Gtilde[wi])*(1-nz) + (gamma1*Fw[wi] + (1-gamma1)*r1z*Gtilde[wi])*nz
-# FG = FG/FG[wpts-1]
-# FGz = FGz/np.outer(np.ones(wpts),FGz[wpts-1,:])
-#
-# # Type distribution by firm type
-# z_w = np.zeros(wpts)
-#
-# for wi in range(wpts):
-#     z_w[wi] = np.trapz(zgrid*lwz[wi,:], zgrid)/np.trapz(lwz[wi],zgrid)
-#
-# # Average wage by z
-# w_z = np.zeros(zpts)
-# for zi in range(zpts):
-#     w_z[zi] = np.trapz(Gwz0[:,zi]*wgrid, wgrid)/np.trapz(Gwz0[:,zi],wgrid)
-#
-# # Average initial wage by z
-# w1_z = np.zeros(zpts)
-# Ew_F = np.trapz(wgrid*fw,wgrid)
-# Ew_Gtil = np.trapz(wgrid*gtilde,wgrid)
-# for zi in range(0,zpts):
-#     w1_z[zi] = (gamma0*Ew_F + (1-gamma0)*r0z[zi]*Ew_Gtil)/(gamma0 + (1-gamma0)*r0z[zi])
-#
-# # Average wage growth by z
-# wi = wpts
-# # Distribution such that above the current wage
-# Ew_F_trunc = np.ones(wpts)*wbar
-# Ew_Gtil_trunc = np.ones(wpts)*wbar
-# for wi in range(wpts-2,1,-1):
-#     Ew_F_trunc[wi] = np.trapz(wgrid[wi:wpts]*fw[wi:wpts], wgrid[wi:wpts])/np.trapz(fw[wi:wpts],wgrid[wi:wpts])
-#     Ew_Gtil_trunc[wi] = np.trapz(wgrid[wi:wpts]*fw[wi:wpts],wgrid[wi:wpts])/np.trapz(fw[wi:wpts],wgrid[wi:wpts])
-# Ew_F_trunc[0] = Ew_F
-# Ew_Gtil_trunc[0] = Ew_Gtil
-#
-# Tper = 100
-# jobten = np.arange(0,Tper)
-# wt_z = np.zeros((zpts,Tper))
-# wt_z[:,0] = w1_z
-# for zi in range(zpts):
-#     for t in range(1,Tper):
-#         # Prob of wage that dominates
-#         FR = 1 - np.interp(wt_z[zi,t-1],wgrid,Fw)
-#         GR = 1 - np.interp(wt_z[zi,t-1],wgrid,Gtilde)
-#         Ew_FR = np.interp(wt_z[zi,t-1],wgrid,Ew_F_trunc)
-#         Ew_GtilR = np.interp(wt_z[zi,t-1],wgrid,Ew_Gtil_trunc)
-#         wt_z[zi,t] = gamma1*FR*Ew_FR + (1-gamma1)*r1z[zi]*GR*Ew_GtilR + (1-gamma1*FR-(1-gamma1)*r1z[zi]*GR)*wt_z[zi,t-1]
-#
-# # For each w, compute half-life to wbar by z for estimate of exponential decay
-# halflife_wz = np.zeros((wpts-1,zpts))
-#
-# for wi in range(wpts-1):
-#     halfwbar = 0.5*(wgrid[wi] +wbar)
-#     for zi in range(zpts):
-#         if Rz[zi] <= wgrid[wi]:
-#             # Probability of a wage that dominates
-#             FR = 1 - np.interp(wgrid[wi],wgrid,Fw)
-#             GR = 1 - np.interp(wgrid[wi],wgrid,Gtilde)
-#             Ew_FR = np.interp(wgrid[wi],wgrid,Ew_F_trunc)
-#             Ew_GtilR = np.interp(wgrid[wi],wgrid,Ew_Gtil_trunc)
-#             Ewtp1 = gamma1*FR*Ew_FR + (1-gamma1)*r1z[zi]*GR*Ew_GtilR + (1 - gamma1*FR - (1-gamma1)*r1z[zi]*GR)*wgrid[wi]
-#             convergert = -np.log((wbar-Ewtp1)/(wbar- wgrid[wi]))
-#             halflife_wz[wi,zi] = 1/convergert*np.log(2)
-#
+    comm.Gather(solf_arrhr,solf_arr)
+    comm.Gather(solx_arrhr,solx_arr)
+
+
+    if rankhr==0:
+        print solf_arr
+        print solx_arr
+        print_lev = 2
+        optf = np.min(solf_arr)
+        opti = np.argmin(solf_arr)
+        optx = solx_arr[opti*Nx:(opti+1)*Nx]
+        print optf
+        print optx
+
+        f = open('optfx.txt','w')
+        optfx = (optf,optx[0],optx[1],optx[2],optx[3])
+        f.write("opt f: %f," % optf)
+        f.write("opt x: ")
+        for i in range(0,Nx-1):
+            f.write(" %f," % optx[i])
+        f.write(" %f \n" % optx[Nx-1])
+        f.close()
+
+        gamma0 = optx[0]*(constr_ub[0]-constr_lb[0])+constr_lb[0]
+        gamma1 = optx[1]*(constr_ub[1]-constr_lb[1])+constr_lb[1]
+        nu0    = optx[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2]
+        nu1    = optx[2]*(constr_ub[2]-constr_lb[2])+constr_lb[2]
+        alpha  = optx[3]*(constr_ub[3]-constr_lb[3])+constr_lb[3]
+
+else:
+    rankhr = 0 # just to have conistency with the MPI version
+
+    # use calibration location gamma0: 0.236142, gamma1: 0.087374, nu1: 0.067709, alpha: 3.480000
+    constr_lb =  np.array([1.e-3, 1.e-3, 1.e-3, 2.])
+    constr_ub =  np.array([0.7  , 0.4  , 1.0  , 3.48])
+    optx = np.array((0.336404, 0.216281, 0.066785, 1.000000))
+    gamma0 = optx[0] * (constr_ub[0] - constr_lb[0]) + constr_lb[0]
+    gamma1 = optx[1] * (constr_ub[1] - constr_lb[1]) + constr_lb[1]
+    nu0 = optx[2] * (constr_ub[2] - constr_lb[2]) + constr_lb[2]
+    nu1 = optx[2] * (constr_ub[2] - constr_lb[2]) + constr_lb[2]
+    alpha = optx[3] * (constr_ub[3] - constr_lb[3]) + constr_lb[3]
+
+if rankhr == 0:
+    [errvec, Rz, wgrid, Fw, Gtilde, Gwz0, Psis, nz, lwz, Lw] = solEcon(gamma0,gamma1,nu0,nu1,alpha,False)
+    print "Err vec here:"
+    print errvec
+    
+    #get the BM values associated
+    
+
+    [nBM,FBM,GwBM,RBM,wgridBM,gamma0BM,gamma1BM] = initBM(UEtarget, EEtarget)
+
+    Gw = np.trapz(np.tile(Omegaz * nz, (wpts, 1)) * Gwz0, zgrid)
+    Gw = Gw / Gw[wpts - 1]  # because int nz /= 1
+    fw = dist2dens(Fw,wgrid)
+    gw = dist2dens(Gw,wgrid)
+    gtilde = dist2dens(Gtilde,wgrid)
+    gwz= np.zeros((wpts,zpts))
+    for zi in range(0,zpts):
+        gwz[:,zi] =dist2dens(Gwz0[:,zi],wgrid)
+
+    wbar = np.max(wgrid)
+    r1z = rhoz1(zgrid, nz, Psis, nu1, gamma1)
+    r0z = rhoz0(zgrid, nz, Psis, nu0, gamma1)
+
+    #Implied offer distribution and measurs of wage growth
+    FG = np.zeros(wpts)
+    FGz = np.zeros((wpts,zpts))
+
+    for wi in range(1, wpts):
+        FG[wi] = np.trapz(Omegaz*((Fw[wi]*gamma0 + (1-gamma0)*r0z*Gtilde[wi])*(1-nz) + (gamma1*Fw[wi] + (1-gamma1)*r1z*Gtilde[wi])*nz), zgrid)
+        FGz[wi,:] = (Fw[wi]*gamma0 + (1-gamma0)*r0z*Gtilde[wi])*(1-nz) + (gamma1*Fw[wi] + (1-gamma1)*r1z*Gtilde[wi])*nz
+    FG = FG/FG[wpts-1]
+    FGz = FGz/np.outer(np.ones(wpts),FGz[wpts-1,:])
+
+    # Type distribution by firm type
+    z_w = np.zeros(wpts)
+
+    for wi in range(wpts):
+        z_w[wi] = np.trapz(zgrid*lwz[wi,:], zgrid)/np.trapz(lwz[wi],zgrid)
+
+    # Average wage by z
+    w_z = np.zeros(zpts)
+    for zi in range(zpts):
+        w_z[zi] = np.trapz(gwz[:,zi]*wgrid, wgrid)/np.trapz(gwz[:,zi],wgrid)
+
+    # Average initial wage by z
+    w1_z = np.zeros(zpts)
+    Ew_F = np.trapz(wgrid*fw,wgrid)
+    Ew_Gtil = np.trapz(wgrid*gtilde,wgrid)
+    for zi in range(0,zpts):
+        w1_z[zi] = (gamma0*Ew_F + (1-gamma0)*r0z[zi]*Ew_Gtil)/(gamma0 + (1-gamma0)*r0z[zi])
+
+    # Average wage growth by z
+    wi = wpts
+    # Distribution such that above the current wage
+    Ew_F_trunc = np.ones(wpts)*wbar
+    Ew_Gtil_trunc = np.ones(wpts)*wbar
+    for wi in range(wpts-2,1,-1):
+        Ew_F_trunc[wi] = np.trapz(wgrid[wi:wpts]*fw[wi:wpts], wgrid[wi:wpts])/np.trapz(fw[wi:wpts],wgrid[wi:wpts])
+        Ew_Gtil_trunc[wi] = np.trapz(wgrid[wi:wpts]*gtilde[wi:wpts],wgrid[wi:wpts])/np.trapz(gtilde[wi:wpts],wgrid[wi:wpts])
+    Ew_F_trunc[0] = Ew_F
+    Ew_Gtil_trunc[0] = Ew_Gtil
+
+    Tper = 100
+    jobten = np.arange(0,Tper)
+    wt_z = np.zeros((zpts,Tper))
+    wt_z[:,0] = w1_z
+    for zi in range(zpts):
+        for t in range(1,Tper):
+            # Prob of wage that dominates
+            FR = 1 - np.interp(wt_z[zi,t-1],wgrid,Fw)
+            GR = 1 - np.interp(wt_z[zi,t-1],wgrid,Gtilde)
+            Ew_FR = np.interp(wt_z[zi,t-1],wgrid,Ew_F_trunc)
+            Ew_GtilR = np.interp(wt_z[zi,t-1],wgrid,Ew_Gtil_trunc)
+            wt_z[zi,t] = gamma1*FR*Ew_FR + (1-gamma1)*r1z[zi]*GR*Ew_GtilR + (1-gamma1*FR-(1-gamma1)*r1z[zi]*GR)*wt_z[zi,t-1]
+
+    # For each w, compute half-life to wbar by z for estimate of exponential decay
+    halflife_wz = np.zeros((wpts-1,zpts))
+
+    for wi in range(wpts-1):
+        halfwbar = 0.5*(wgrid[wi] +wbar)
+        for zi in range(zpts):
+            if Rz[zi] <= wgrid[wi]:
+                # Probability of a wage that dominates
+                FR = 1 - np.interp(wgrid[wi],wgrid,Fw)
+                GR = 1 - np.interp(wgrid[wi],wgrid,Gtilde)
+                Ew_FR = np.interp(wgrid[wi],wgrid,Ew_F_trunc)
+                Ew_GtilR = np.interp(wgrid[wi],wgrid,Ew_Gtil_trunc)
+                Ewtp1 = gamma1*FR*Ew_FR + (1-gamma1)*r1z[zi]*GR*Ew_GtilR + (1 - gamma1*FR - (1-gamma1)*r1z[zi]*GR)*wgrid[wi]
+                convergert = -np.log((wbar-Ewtp1)/(wbar- wgrid[wi]))
+                halflife_wz[wi,zi] = 1/convergert*np.log(2)
+
 # #%% Compute paths for network and direct search
 # GRz = np.zeros(zpts)
 # FRz = np.zeros(zpts)
