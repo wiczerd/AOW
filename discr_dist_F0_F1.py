@@ -52,7 +52,7 @@ UEtarget = 0.249 #FALLICK & FLEISCHMAN Numbers (as of 2017:10)
 EEtarget = 0.021
 Utarget  = 0.055
 NetfndTarget = 0.234
-netfrtdirfrtTarget = 0.23
+netfrtdirfrtTarget =  1.11392 # <- using less than median # Using full sample -> 0.23
 b = 0
 p = 1
 alpha = 2.5
@@ -346,7 +346,7 @@ def initBM(UErt, EErt):
 
     R = np.ones(zpts) * wLBM
 
-    return( GwBM,R,wgridBM,gamma0BM,gamma1BM)
+    return(n,FBM,GwBM,R,wgridBM,gamma0BM,gamma1BM)
 
 
 def setOmega(alphain):
@@ -356,7 +356,7 @@ def setOmega(alphain):
     global zstep
 
     z0 = 1
-    zZ = ((0.99 * (1 - alphain) / (alphain - 1) + z0) * z0 ** (-alphain)) ** (1 / (1 - alphain))
+    zZ = ((0.999 * (1 - alphain) / (alphain - 1) + z0) * z0 ** (-alphain)) ** (1 / (1 - alphain))
     zgrid = np.linspace(0, 1, zpts + 1) ** zpow * (zZ - z0) + z0
     zgrid = .5 * (zgrid[1:] + zgrid[0:-1])
     zgrid[0] = z0
@@ -380,18 +380,21 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
     global zgrid
     global zpts
     global wpts
+    global nu,nu1,gamma1,gamm0,alpha
 
     nu0 = nu0in
     nu1 = nu1in
     gamma1 = gamma1in
     gamma0 = gamma0in
+    alpha  = alphain
 
     Omegaz = setOmega(alphain)
     Psis   = Omegaz.copy() #just to initialize
     wgrid  = np.ones(wpts)
 
     #initialize F, R, wgrid with the BM versions
-    [n,Fw,Rz,wgrid,gamma0BM,gamma1BM] = initBM(UEtarget,EEtarget)
+
+    [n,Fw,Gw,Rz,wgrid,gamma0BM,gamma1BM] = initBM(UEtarget,EEtarget)
 
     nz = np.ones(zpts)*n
     wbar = wgrid[wpts-1]
@@ -401,7 +404,7 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
     r0z = rhoz0(zgrid, nz,Psis,nu0,gamma1)
 
     # setup some objects
-    Gwz0 = np.outer(Fw, np.ones(zpts))
+    Gwz0 = np.outer(Gw, np.ones(zpts))
     Gtilde = np.zeros(wpts)
 
     refyield_wz = np.zeros((wpts, zpts))
@@ -409,7 +412,6 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
 
     lwz = np.zeros((wpts, zpts))
     Lw = np.zeros(wpts)
-    Lw1 = np.zeros(wpts)
 
     nz = np.ones(zpts) * n / np.inner(zstep, Omegaz)
     nz1 = nz.copy()
@@ -420,10 +422,6 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
 
     R1 = np.copy(Rz)
     mask = np.outer(np.ones(wpts), Rz) <= np.outer(wgrid, np.ones(zpts))
-
-    nonmonoval = 0
-    nonmonocount = 0
-    err_wbarnew = 0
 
     if (print_lev > 0):
         print ("gamma0:   %6.6f, gamma1: %6.6f, nu1:   %6.6f, alpha:       %6.6f" % (gamma0in, gamma1in, nu1in, alphain))
@@ -436,7 +434,6 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
             mask = np.outer(np.ones(wpts), Rz) <= np.outer(wgrid, np.ones(zpts))
             mask = mask.flatten('F')
 
-            reset_flag = 0
             Rdist = np.zeros((maxRziter,2))
 
             for Rziter in range(0,maxRziter):
@@ -482,15 +479,15 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
                 mask = mask.flatten('F')
             # Done with Rz iteration
 
-            Gtilde = np.trapz(np.outer(Psis,np.ones(wpts)) * Gwz0.T, zgrid, axis=0)
+            Gtilde = np.trapz(np.tile(Psis,(wpts,1))*Gwz0, zgrid)
             Gtilde = Gtilde/Gtilde[wpts-1]
-            Gw     = np.trapz(np.tile(Omegaz*nz,(wpts,1))*Gwz0, zgrid)
+            Gw     = np.trapz(np.tile(Omegaz,(wpts,1))*Gwz0, zgrid)
             Gw     = Gw/Gw[wpts-1] #because int nz /= 1
 
             # Recover steady state n(z) and integrate to n
             for zi in range(0,zpts):
                 indic = wgrid <= Rz[zi]
-                Rzi_disc = np.max([sum(indic),1])
+
                 Rzi = np.min([wgrid[wpts-1], np.max([wgrid[0],Rz[zi]])])
 
                 FR = np.interp(Rzi,wgrid,Fw,left=0,right=0)
@@ -687,7 +684,7 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
 
         difw = wgrid1 - wgrid
         if (np.max(abs(difw)) < 1e-6) | (np.sqrt(var_pi)/pi_target <1e-2 ):
-           break
+            break
 
         if (var_pi >1e-7) and print_lev>2 :
             print("variance in pi is %f" % var_pi)
@@ -732,19 +729,23 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
 
     netfrtdirfrt   = np.mean( (netfrtdirfrt_w[1:]- netfrtdirfrt_w[:-1])/(Gw[1:-1]-Gw[:-2])  ) #np.trapz( (netfrtdirfrt_w[1:]- netfrtdirfrt_w[:-1])/(Gw[1:-1]-Gw[:-2]) * gw[:-2]/np.trapz(gw[:-2],Gw[:-2]), Gw[:-2])
 
-    if( print_lev>=2):
-        print("-------------------------")
-        print("nu0= %f" % nu0)
-        print("Filled by referral: %f" % float(refyield/(diryield + refyield)))
-        print("UE finding rate: %f" % UEfrt)
-        print("EE finding rate: %f" % EEfrt)
-        print("-------------------------")
+#    if( print_lev>=2):
+    print("-------------------------")
+    print("paramvec: %f,%f,%f,%f" % (gamma0,gamma1,nu1,alpha) )
+
+    print("Filled by referral: %f" % float(refyield/(diryield + refyield)))
+    print("UE finding rate: %f" % UEfrt)
+    print("EE finding rate: %f" % EEfrt)
+    print("Average increase in net frt: %f" % netfrtdirfrt)
+    print("-------------------------")
+    print("normalized omegaz sum, before init: %f" % np.sum(Omegaz*zstep))
+    
     errvec = np.zeros(4)
     errvec[0] = (refyield/(diryield + refyield) - NetfndTarget)/NetfndTarget
     errvec[1] = (EEfrt - EEtarget)/EEtarget
     errvec[2] = (UEfrt - UEtarget) / UEtarget
     errvec[3] = (netfrtdirfrt - netfrtdirfrtTarget)/netfrtdirfrtTarget
-
+    
     if(print_lev>0):
     #    print ("gamma0:   %6.6f, gamma1: %6.6f, nu1:   %6.6f, alpha:       %6.6f" % (gamma0,gamma1,nu1,alpha))
         print ("refyield: %6.6f, EEfrt:  %6.6f, UEfrt: %6.6f, net_dir frt: %6.6f" % (errvec[0],errvec[1],errvec[2],errvec[3]))
@@ -757,7 +758,7 @@ def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
 #-----------------------------------------------------------------------
 #-----------------------------------------------------------------------
 
-Omegaz = setOmega(alpha)
+
 # for ni in range(0,10):
 #     print_lev = 2
 #     nu1 = 0.01 + ni*0.01
@@ -779,7 +780,7 @@ if calibrate_flag == True:
     fopthist.close()
     rankhr = comm.Get_rank()
     constr_lb =  np.array([1.e-3, 1.e-3, 1.e-3, 2.])
-    constr_ub =  np.array([0.7  , 0.4  , 1.0  , 5.])
+    constr_ub =  np.array([0.7  , 0.4  , 1.0  , 3.48])
 
     solEcon_obj = lambda xin: solEcon(xin[0]*(constr_ub[0]-constr_lb[0])+constr_lb[0],
                                       xin[1]*(constr_ub[1]-constr_lb[1])+constr_lb[1],
@@ -851,18 +852,25 @@ else:
     nu0 = optx[2] * (constr_ub[2] - constr_lb[2]) + constr_lb[2]
     nu1 = optx[2] * (constr_ub[2] - constr_lb[2]) + constr_lb[2]
     alpha = optx[3] * (constr_ub[3] - constr_lb[3]) + constr_lb[3]
+    gamma0 = 0.231936
+    gamma1 = 0.052642
+    nu0    = 0.479389
+    nu1    = 0.479389    
+    alpha  = 2.000000
 
 if rankhr == 0:
     [errvec, Rz, wgrid, Fw, Gtilde, Gwz0, Psis, nz, lwz, Lw] = solEcon(gamma0,gamma1,nu0,nu1,alpha,False)
     print "Err vec here:"
     print errvec
+    Omegaz = setOmega(alpha)
+    
     
     #get the BM values associated
-    
-
+ 
     [nBM,FBM,GwBM,RBM,wgridBM,gamma0BM,gamma1BM] = initBM(UEtarget, EEtarget)
+ 
 
-    Gw = np.trapz(np.tile(Omegaz * nz, (wpts, 1)) * Gwz0, zgrid)
+    Gw = np.trapz(np.tile(Omegaz , (wpts, 1)) * Gwz0, zgrid)
     Gw = Gw / Gw[wpts - 1]  # because int nz /= 1
     fw = dist2dens(Fw,wgrid)
     gw = dist2dens(Gw,wgrid)
