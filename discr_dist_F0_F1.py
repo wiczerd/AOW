@@ -111,7 +111,7 @@ def rhoz0(z,nz,Psis,nu0,gamma1):
     global zgrid
     pzs = Psis*nz*gamma1*nu0/zgrid
     pz = np.trapz(pzs,zgrid)
-    P = (1 - (1-pz)**z)
+    P = 1 - np.exp(-z*pz)
     return(P)
 
 def rhoz1(z,nz,Psis,nu1,gamma1):
@@ -120,7 +120,7 @@ def rhoz1(z,nz,Psis,nu1,gamma1):
 
     pzs = Psis*nz*gamma1*nu1/zgrid
     pz = np.trapz(pzs,zgrid)
-    P = (1 - (1-pz)**z)
+    P = 1 - np.exp(-z*pz)
 
     return(P)
 
@@ -356,20 +356,18 @@ def setOmega(alphain):
     global zstep
 
     z0 = 1
-    zZ = ((0.999 * (1 - alphain) / (alphain - 1) + z0) * z0 ** (-alphain)) ** (1 / (1 - alphain))
-    zgrid = np.linspace(0, 1, zpts + 1) ** zpow * (zZ - z0) + z0
+    zZ = ((-0.999 + z0) * z0 ** (-alphain)) ** (1 / (1 - alphain))
+    zgrid = np.logspace(np.log(z0),np.log(zZ),num= zpts + 1,base=np.exp(1)) #np.linspace(0, 1,num= zpts + 1,base=np.exp(1)) ** zpow * (zZ - z0) + z0
     zgrid = .5 * (zgrid[1:] + zgrid[0:-1])
     zgrid[0] = z0
     zgrid[zpts - 1] = zZ
 
-    zstep = np.linspace(0, 1, zpts + 1) ** zpow * (zZ - z0) + z0
+    zstep = np.logspace(np.log(z0),np.log(zZ),num= zpts + 1,base=np.exp(1)) #np.linspace(0, 1, num= zpts + 1,base=np.exp(1)) ** zpow * (zZ - z0) + z0
     zstep = zstep[1:] - zstep[:-1]
 
     Omegaz = (alphain-1)*(zgrid/z0)**-alphain
     # Renorm Omegaz to integrate to 1
-    Omegaz = Omegaz/np.sum(Omegaz*zstep)
-    # Mean is hypothetically alpha/(alpha-1)
-    meanz = np.inner(zstep,(Omegaz*zgrid) )
+    Omegaz = Omegaz/np.trapz(Omegaz,zgrid)
     return(Omegaz)
 
 def solEcon(gamma0in, gamma1in, nu0in,nu1in,alphain,cal_flag=False):
@@ -846,17 +844,17 @@ else:
     # use calibration location gamma0: 0.236142, gamma1: 0.087374, nu1: 0.067709, alpha: 3.480000
     constr_lb =  np.array([1.e-3, 1.e-3, 1.e-3, 2.])
     constr_ub =  np.array([0.7  , 0.4  , 1.0  , 3.48])
-    optx = np.array((0.336404, 0.216281, 0.066785, 1.000000))
+    optx = np.array((0.327010, 0.124634, 0.515148, 1.000000))
     gamma0 = optx[0] * (constr_ub[0] - constr_lb[0]) + constr_lb[0]
     gamma1 = optx[1] * (constr_ub[1] - constr_lb[1]) + constr_lb[1]
     nu0 = optx[2] * (constr_ub[2] - constr_lb[2]) + constr_lb[2]
     nu1 = optx[2] * (constr_ub[2] - constr_lb[2]) + constr_lb[2]
     alpha = optx[3] * (constr_ub[3] - constr_lb[3]) + constr_lb[3]
-    gamma0 = 0.231936
-    gamma1 = 0.052642
-    nu0    = 0.479389
-    nu1    = 0.479389    
-    alpha  = 2.000000
+    #gamma0 = 0.231936
+    #gamma1 = 0.052642
+    #nu0    = 0.479389
+    #nu1    = 0.479389    
+    #alpha  = 2.000000
 
 if rankhr == 0:
     [errvec, Rz, wgrid, Fw, Gtilde, Gwz0, Psis, nz, lwz, Lw] = solEcon(gamma0,gamma1,nu0,nu1,alpha,False)
@@ -951,122 +949,122 @@ if rankhr == 0:
                 convergert = -np.log((wbar-Ewtp1)/(wbar- wgrid[wi]))
                 halflife_wz[wi,zi] = 1/convergert*np.log(2)
 
-# #%% Compute paths for network and direct search
-# GRz = np.zeros(zpts)
-# FRz = np.zeros(zpts)
-# for zi in range(zpts):
-#     if Rz[zi] <= np.min(wgrid):
-#         pchip_func1 = pchip(wgrid,Gtilde)
-#         GRz[zi] = pchip_func1(Rz[zi])
-#         pchip_func2 = pchip(wgrid,Fw)
-#         FRz[zi] = pchip_func2(Rz[zi])
-#     else:
-#         GRz[zi] = 0
-#         FRz[zi] = 0
-#
-# Distz_net = (Omegaz*(1-nz)*r0z*(1-GRz))/np.trapz(Omegaz*(1-nz)*r0z*(1-GRz), zgrid)
-# Ez_net = np.trapz(zgrid*Omegaz*(1-nz)*r0z*(1-GRz), zgrid)/np.trapz(Omegaz*(1-nz)*r0z*(1-GRz), zgrid)
-# Distz_dir = (Omegaz*(1-nz)*(1-FRz))/np.trapz(Omegaz*(1-nz)*(1-FRz), zgrid)
-# Ez_dir = np.trapz(zgrid*Omegaz*(1-nz)*(1-FRz),zgrid)/np.trapz(Omegaz*(1-nz)*(1-FRz),zgrid)
-# Distz_netdir = Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))/np.trapz(Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz)),zgrid)
-# Ez_netdir = np.trapz(zgrid*Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz)), zgrid)/np.trapz(Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz)), zgrid)
-# Omegaz_cdf = cumtrapz(Omegaz,zgrid,initial=0)
-# pctile_Ez_net = np.interp(Ez_net, zgrid, Omegaz_cdf)
-# pctile_Ez_dir = np.interp(Ez_dir, zgrid, Omegaz_cdf)
-# pctile_Ez_netdir = np.interp(Ez_netdir, zgrid, Omegaz_cdf)
-#
-# # Average z by w
-# gw_meanz = np.zeros(wpts)
-# for wi in range(wpts):
-#     gw_meanz[wi] = np.trapz(zgrid*gwz[wi,:]/np.sum(gwz[wi,:]),zgrid)
-# tmp = np.trapz(gw_meanz*gw,wgrid)
-# gw_meanz = gw_meanz/tmp*meanz
-#
-# # Lorenz curves:
-# # Compute Lorenz curve in each scenario
-# LorenzW = np.zeros(wpts)
-# SiW = np.zeros(wpts)
-# for wi in range(wpts):
-#     for wj in range(wi):
-#         SiW[wi] = fw[wj]*wgrid[wj]+SiW[wi]
-# for wi in range(wpts):
-#     LorenzW[wi] = SiW[wi]/SiW[wpts-1]
-#
-# pctile_Ew_F = np.interp(Ew_F,wgrid,Gw)
-# pctile_Ew_Gtil = np.interp(Ew_Gtil,wgrid,Gw)
-#
-# #%% HALF LIFES
-#
-# # Network initial wage and network initial z
-# Ez_netLi = np.max(np.nonzero(zgrid < Ez_net))
-# Ez_netLwt= (zgrid[Ez_netLi+1] - Ez_net)/(zgrid[Ez_netLi+1]-zgrid[Ez_netLi])
-#
-# h1_netw_netz = np.interp(Ew_Gtil,wgrid[:wpts-1],halflife_wz[:,Ez_netLi])*Ez_netLwt + \
-#                 np.interp(Ew_Gtil,wgrid[:wpts-1],halflife_wz[:,Ez_netLi+1])*(1-Ez_netLwt)
-#
-# convergert_netw_netz = (1/h1_netw_netz)/np.log(2)
-#
-# # Network initial wage and average initial z
-# Ez_netdirLi = np.max(np.nonzero(zgrid < Ez_netdir))
-# Ez_netdirLwt = (zgrid[Ez_netdirLi +1] - Ez_netdir)/(zgrid[Ez_netdirLi+1]-zgrid[Ez_netdirLi])
-#
-# hl_netw_netdirz = np.interp(Ew_Gtil, wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi])*Ez_netdirLwt + \
-#                 np.interp(Ew_Gtil,wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi+1])*(1-Ez_netdirLwt)
-#
-# convergert_netw_netdirz = (1/hl_netw_netdirz)/np.log(2)
-#
-# # Direct initial wage and direct initial z
-# Ez_dirLi = np.max(np.nonzero(zgrid < Ez_dir))
-# Ez_dirLwt = (zgrid[Ez_dirLi +1] - Ez_dir)/(zgrid[Ez_dirLi+1]-zgrid[Ez_dirLi])
-#
-# hl_dirw_dirz = np.interp(Ew_F, wgrid[:wpts-1],halflife_wz[:,Ez_dirLi])*Ez_dirLwt + \
-#                 np.interp(Ew_F,wgrid[:wpts-1],halflife_wz[:,Ez_dirLi+1])*(1-Ez_dirLwt)
-#
-# convergert_dirw_dirz = (1/hl_dirw_dirz)/np.log(2)
-#
-# # Direction initial wage and average initial z
-# hl_dirw_netdirz = np.interp(Ew_F, wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi])*Ez_netdirLwt + \
-#                 np.interp(Ew_F,wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi+1])*(1-Ez_netdirLwt)
-# convergert_dirw_netdirz = (1/hl_dirw_netdirz)/np.log(2)
-#
-# # Finding rate for network finder,direct finder and average finder
-# # here compute the average unemployment duration
-# Eudur_net = np.trapz(Distz_net/((gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))),zgrid)
-# Eudur_dir = np.trapz(Distz_dir/((gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))),zgrid)
-# Eudur_netdir = np.trapz(Distz_netdir/((gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))),zgrid)
-#
-# Eudur_net_ave = Eudur_net/Eudur_netdir
-# Eudur_dir_ave = Eudur_dir/Eudur_netdir
-# # SS wage diff
-# lwz_netz = Ez_netLwt*(np.trapz(wgrid*gwz[:,Ez_netLi], wgrid)/np.trapz(gwz[:,Ez_netLi],wgrid)) + \
-#             (1-Ez_netLwt)*(np.trapz(wgrid*gwz[:,Ez_netLi+1],wgrid)/np.trapz(gwz[:,Ez_netLi+1],wgrid))
-# pctile_lwz_netz = np.interp(lwz_netz,wgrid,Gw)
-# lwz_dirz = Ez_dirLwt*np.trapz(wgrid*gwz[:,Ez_dirLi],wgrid)/np.trapz(gwz[:,Ez_dirLi],wgrid) + \
-#             (1-Ez_dirLwt)*np.trapz(wgrid*gwz[:,Ez_dirLi+1],wgrid)/np.trapz(gwz[:,Ez_dirLi+1],wgrid)
-# pctile_lwz_dirz = np.interp(lwz_dirz,wgrid,Gw)
-#
-# #%% Average duration of match whether through network or directed search
-#
-# # First average over z for each wage level, then integerate over wage levels
-# Emdur_w_net = np.zeros(wpts)
-# Emdur_w_dir = np.zeros(wpts)
-# for wi in range(wpts-1):
-#     Emdur_w_net[wi] = np.trapz(Distz_net/(gamma1*(1-Fw[wi]) + (1-gamma1)*r1z*(1-Gtilde[wi])),zgrid)
-#     Emdur_w_dir[wi] = np.trapz(Distz_dir/(gamma1*(1-Fw[wi]) + (1-gamma1)*r1z*(1-Gtilde[wi])),zgrid)
-# gtilde_1wptsM1 = gtilde[:wpts-1]/np.trapz(gtilde[:wpts-1],wgrid[:wpts-1])
-# fw_1wptsM1 = fw[:wpts-1]/np.trapz(fw[:wpts-1],wgrid[:wpts-1])
-# Emdur_net = np.trapz(gtilde_1wptsM1*Emdur_w_net[:wpts-1],wgrid[:wpts-1])/12
-# Emdur_dir = np.trapz(fw_1wptsM1*Emdur_w_dir[:wpts-1],wgrid[:wpts-1])/12
-#
-# # Expected duration conditional on wage
-# Emdur_netVdir_condw = np.trapz(gtilde_1wptsM1[:wpts-1]*(Emdur_w_net[:wpts-1]/Emdur_w_dir[:wpts-1]),wgrid[:wpts-1])
-#
-# #%% Probability of network search find
-#
-# Pr_netfnd = np.zeros(wpts-1)
-# for wi in range(wpts-1):
-#     Pr_netfnd[wi] = np.trapz((1-gamma1)*r1z*(1-Gtilde[wi])/((1-gamma1)*r1z*(1-Gtilde[wi]) + gamma1*(1-Fw[wi]))*Omegaz,zgrid)
-#
+ #%% Compute paths for network and direct search
+GRz = np.zeros(zpts)
+FRz = np.zeros(zpts)
+for zi in range(zpts):
+    if Rz[zi] <= np.min(wgrid):
+        pchip_func1 = pchip(wgrid,Gtilde)
+        GRz[zi] = pchip_func1(Rz[zi])
+        pchip_func2 = pchip(wgrid,Fw)
+        FRz[zi] = pchip_func2(Rz[zi])
+    else:
+        GRz[zi] = 0
+        FRz[zi] = 0
+
+Distz_net = (Omegaz*(1-nz)*r0z*(1-GRz))/np.trapz(Omegaz*(1-nz)*r0z*(1-GRz), zgrid)
+Ez_net = np.trapz(zgrid*Omegaz*(1-nz)*r0z*(1-GRz), zgrid)/np.trapz(Omegaz*(1-nz)*r0z*(1-GRz), zgrid)
+Distz_dir = (Omegaz*(1-nz)*(1-FRz))/np.trapz(Omegaz*(1-nz)*(1-FRz), zgrid)
+Ez_dir = np.trapz(zgrid*Omegaz*(1-nz)*(1-FRz),zgrid)/np.trapz(Omegaz*(1-nz)*(1-FRz),zgrid)
+Distz_netdir = Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))/np.trapz(Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz)),zgrid)
+Ez_netdir = np.trapz(zgrid*Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz)), zgrid)/np.trapz(Omegaz*(1-nz)*(gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz)), zgrid)
+Omegaz_cdf = cumtrapz(Omegaz,zgrid,initial=0)
+pctile_Ez_net = np.interp(Ez_net, zgrid, Omegaz_cdf)
+pctile_Ez_dir = np.interp(Ez_dir, zgrid, Omegaz_cdf)
+pctile_Ez_netdir = np.interp(Ez_netdir, zgrid, Omegaz_cdf)
+
+# Average z by w
+gw_meanz = np.zeros(wpts)
+for wi in range(wpts):
+    gw_meanz[wi] = np.trapz(zgrid*gwz[wi,:]/np.sum(gwz[wi,:]),zgrid)
+tmp = np.trapz(gw_meanz*gw,wgrid)
+gw_meanz = gw_meanz/tmp*np.trapz(Omegaz*zgrid,zgrid)
+
+# Lorenz curves:
+# Compute Lorenz curve in each scenario
+LorenzW = np.zeros(wpts)
+SiW = np.zeros(wpts)
+for wi in range(wpts):
+    for wj in range(wi):
+         SiW[wi] = fw[wj]*wgrid[wj]+SiW[wi]
+for wi in range(wpts):
+    LorenzW[wi] = SiW[wi]/SiW[wpts-1]
+
+pctile_Ew_F = np.interp(Ew_F,wgrid,Gw)
+pctile_Ew_Gtil = np.interp(Ew_Gtil,wgrid,Gw)
+
+#%% HALF LIFES
+
+# Network initial wage and network initial z
+Ez_netLi = np.max(np.nonzero(zgrid < Ez_net))
+Ez_netLwt= (zgrid[Ez_netLi+1] - Ez_net)/(zgrid[Ez_netLi+1]-zgrid[Ez_netLi])
+
+h1_netw_netz = np.interp(Ew_Gtil,wgrid[:wpts-1],halflife_wz[:,Ez_netLi])*Ez_netLwt + \
+             np.interp(Ew_Gtil,wgrid[:wpts-1],halflife_wz[:,Ez_netLi+1])*(1-Ez_netLwt)
+
+convergert_netw_netz = (1/h1_netw_netz)/np.log(2)
+
+# Network initial wage and average initial z
+Ez_netdirLi = np.max(np.nonzero(zgrid < Ez_netdir))
+Ez_netdirLwt = (zgrid[Ez_netdirLi +1] - Ez_netdir)/(zgrid[Ez_netdirLi+1]-zgrid[Ez_netdirLi])
+
+hl_netw_netdirz = np.interp(Ew_Gtil, wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi])*Ez_netdirLwt + \
+             np.interp(Ew_Gtil,wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi+1])*(1-Ez_netdirLwt)
+
+convergert_netw_netdirz = (1/hl_netw_netdirz)/np.log(2)
+
+# Direct initial wage and direct initial z
+Ez_dirLi = np.max(np.nonzero(zgrid < Ez_dir))
+Ez_dirLwt = (zgrid[Ez_dirLi +1] - Ez_dir)/(zgrid[Ez_dirLi+1]-zgrid[Ez_dirLi])
+
+hl_dirw_dirz = np.interp(Ew_F, wgrid[:wpts-1],halflife_wz[:,Ez_dirLi])*Ez_dirLwt + \
+             np.interp(Ew_F,wgrid[:wpts-1],halflife_wz[:,Ez_dirLi+1])*(1-Ez_dirLwt)
+
+convergert_dirw_dirz = (1/hl_dirw_dirz)/np.log(2)
+
+# Direction initial wage and average initial z
+hl_dirw_netdirz = np.interp(Ew_F, wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi])*Ez_netdirLwt + \
+             np.interp(Ew_F,wgrid[:wpts-1],halflife_wz[:,Ez_netdirLi+1])*(1-Ez_netdirLwt)
+convergert_dirw_netdirz = (1/hl_dirw_netdirz)/np.log(2)
+
+# Finding rate for network finder,direct finder and average finder
+# here compute the average unemployment duration
+Eudur_net = np.trapz(Distz_net/((gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))),zgrid)
+Eudur_dir = np.trapz(Distz_dir/((gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))),zgrid)
+Eudur_netdir = np.trapz(Distz_netdir/((gamma0*(1-FRz) + (1-gamma0)*r0z*(1-GRz))),zgrid)
+
+Eudur_net_ave = Eudur_net/Eudur_netdir
+Eudur_dir_ave = Eudur_dir/Eudur_netdir
+# SS wage diff
+lwz_netz = Ez_netLwt*(np.trapz(wgrid*gwz[:,Ez_netLi], wgrid)/np.trapz(gwz[:,Ez_netLi],wgrid)) + \
+         (1-Ez_netLwt)*(np.trapz(wgrid*gwz[:,Ez_netLi+1],wgrid)/np.trapz(gwz[:,Ez_netLi+1],wgrid))
+pctile_lwz_netz = np.interp(lwz_netz,wgrid,Gw)
+lwz_dirz = Ez_dirLwt*np.trapz(wgrid*gwz[:,Ez_dirLi],wgrid)/np.trapz(gwz[:,Ez_dirLi],wgrid) + \
+         (1-Ez_dirLwt)*np.trapz(wgrid*gwz[:,Ez_dirLi+1],wgrid)/np.trapz(gwz[:,Ez_dirLi+1],wgrid)
+pctile_lwz_dirz = np.interp(lwz_dirz,wgrid,Gw)
+
+#%% Average duration of match whether through network or directed search
+
+# First average over z for each wage level, then integerate over wage levels
+Emdur_w_net = np.zeros(wpts)
+Emdur_w_dir = np.zeros(wpts)
+for wi in range(wpts-1):
+     Emdur_w_net[wi] = np.trapz(Distz_net/(gamma1*(1-Fw[wi]) + (1-gamma1)*r1z*(1-Gtilde[wi])),zgrid)
+     Emdur_w_dir[wi] = np.trapz(Distz_dir/(gamma1*(1-Fw[wi]) + (1-gamma1)*r1z*(1-Gtilde[wi])),zgrid)
+gtilde_1wptsM1 = gtilde[:wpts-1]/np.trapz(gtilde[:wpts-1],wgrid[:wpts-1])
+fw_1wptsM1 = fw[:wpts-1]/np.trapz(fw[:wpts-1],wgrid[:wpts-1])
+Emdur_net = np.trapz(gtilde_1wptsM1*Emdur_w_net[:wpts-1],wgrid[:wpts-1])/12
+Emdur_dir = np.trapz(fw_1wptsM1*Emdur_w_dir[:wpts-1],wgrid[:wpts-1])/12
+
+# Expected duration conditional on wage
+Emdur_netVdir_condw = np.trapz(gtilde_1wptsM1[:wpts-1]*(Emdur_w_net[:wpts-1]/Emdur_w_dir[:wpts-1]),wgrid[:wpts-1])
+
+#%% Probability of network search find
+
+Pr_netfnd = np.zeros(wpts-1)
+for wi in range(wpts-1):
+    Pr_netfnd[wi] = np.trapz((1-gamma1)*r1z*(1-Gtilde[wi])/((1-gamma1)*r1z*(1-Gtilde[wi]) + gamma1*(1-Fw[wi]))*Omegaz,zgrid)
+
 # #%% Find BM analogs
 # gamma0BM = np.trapz(Omegaz*(gamma0 + (1-gamma0)*r0z),zgrid)
 # gamma1BM = np.trapz(Omegaz*(gamma1 + (1-gamma1)*r1z),zgrid)
